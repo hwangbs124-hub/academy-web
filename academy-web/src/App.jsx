@@ -1,1239 +1,898 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
-const COLORS = {
-  bg: "#F4F6FB",
-  card: "#FFFFFF",
-  cardBorder: "#E2E8F0",
-  accent: "#3B7EF6",
-  accentSoft: "#EBF2FF",
-  green: "#16A34A",
-  greenSoft: "#DCFCE7",
-  yellow: "#D97706",
-  yellowSoft: "#FEF3C7",
-  red: "#DC2626",
-  redSoft: "#FEE2E2",
-  text: "#1A202C",
-  textMuted: "#64748B",
-  textDim: "#94A3B8",
+const C = {
+  bg:"#F4F6FB", card:"#FFFFFF", border:"#E2E8F0",
+  accent:"#3B7EF6", accentSoft:"#EBF2FF",
+  green:"#16A34A", greenSoft:"#DCFCE7",
+  yellow:"#D97706", yellowSoft:"#FEF3C7",
+  red:"#DC2626", redSoft:"#FEE2E2",
+  text:"#1A202C", muted:"#64748B", dim:"#94A3B8",
 };
 
-const NAV_ITEMS = [
-  { id: "dashboard", icon: "⊞", label: "대시보드" },
-  { id: "schedule", icon: "◫", label: "수업 일정" },
-  { id: "grades", icon: "◈", label: "성적/과제" },
-  { id: "notice", icon: "◉", label: "공지/메시지" },
-  { id: "sms", icon: "✉", label: "문자 발송" },
-  { id: "report", icon: "◧", label: "수업 보고서" },
+// ── localStorage 기반 데이터 저장소 ──
+function useStore(key, init) {
+  const [val, setVal] = useState(() => {
+    try { const s = localStorage.getItem(key); return s ? JSON.parse(s) : init; } catch { return init; }
+  });
+  const set = (v) => {
+    const next = typeof v === "function" ? v(val) : v;
+    setVal(next);
+    localStorage.setItem(key, JSON.stringify(next));
+  };
+  return [val, set];
+}
+
+const INIT_CLASSES = [
+  { id:1, name:"수학 심화반", teacher:"김민준", time:"월·수 16:00", room:"A101", days:["월","수"] },
+  { id:2, name:"영어 회화반", teacher:"이소연", time:"화·목 17:30", room:"B203", days:["화","목"] },
+  { id:3, name:"과학 탐구반", teacher:"박도현", time:"수·금 15:00", room:"A102", days:["수","금"] },
+  { id:4, name:"국어 논술반", teacher:"최지원", time:"월·목 18:00", room:"C301", days:["월","목"] },
+  { id:5, name:"코딩 기초반", teacher:"정하은", time:"토 10:00",   room:"D401", days:["토"] },
+];
+const INIT_STUDENTS = [
+  { id:1, name:"강서준", classId:1, avgScore:92, homework:"완료", trend:"up",   parentPhone:"010-1234-5678" },
+  { id:2, name:"윤아린", classId:2, avgScore:88, homework:"완료", trend:"up",   parentPhone:"010-2345-6789" },
+  { id:3, name:"임재현", classId:3, avgScore:74, homework:"미제출", trend:"down", parentPhone:"010-3456-7890" },
+  { id:4, name:"한도연", classId:1, avgScore:95, homework:"완료", trend:"up",   parentPhone:"010-4567-8901" },
+  { id:5, name:"오수민", classId:4, avgScore:81, homework:"완료", trend:"same", parentPhone:"010-5678-9012" },
+  { id:6, name:"배지호", classId:5, avgScore:67, homework:"미제출", trend:"down", parentPhone:"010-6789-0123" },
+  { id:7, name:"신예은", classId:2, avgScore:90, homework:"완료", trend:"up",   parentPhone:"010-7890-1234" },
+];
+const INIT_NOTICES = [
+  { id:1, type:"공지", title:"6월 모의고사 일정 안내",    date:"2026.05.30", author:"키맨학원", read:true,  important:true },
+  { id:2, type:"공지", title:"여름 특강 수강신청 안내",   date:"2026.05.28", author:"키맨학원", read:false, important:true },
+  { id:3, type:"메시지", title:"5월 성적표 배부",         date:"2026.05.27", author:"이소연",  read:false, important:false },
+];
+const INIT_TEMPLATES = [
+  { id:1, label:"결석 안내",      text:"[키맨학원] 안녕하세요, {이름} 학부모님. 오늘 {이름} 학생이 수업에 결석하였습니다. 확인 부탁드립니다." },
+  { id:2, label:"성적 통보",      text:"[키맨학원] {이름} 학생의 이번 테스트 성적이 나왔습니다. 원내 방문 또는 문의 전화 주시기 바랍니다." },
+  { id:3, label:"수업 일정 변경", text:"[키맨학원] 안녕하세요. 수업 일정이 변경되었습니다. 자세한 내용은 원으로 문의 바랍니다." },
+  { id:4, label:"공지 전달",      text:"[키맨학원] 학부모님께 안내드립니다. 원에서 중요한 공지사항이 있으니 확인 부탁드립니다." },
 ];
 
-// ── 메시지 발송: 백엔드 Serverless Function 호출 (API Secret 서버에서만 사용) ──
-async function sendSolapiSMS({ to, text, type = "sms", variables }) {
+const DAYS = ["월","화","수","목","금","토","일"];
+const COLORS_LIST = [C.accent, C.green, C.red, C.yellow, "#A78BFA", "#EC4899", "#F97316"];
+
+async function sendSolapiSMS({ to, text, type="sms", variables }) {
   const res = await fetch("/api/send-sms", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
+    method:"POST", headers:{"Content-Type":"application/json"},
     body: JSON.stringify({ to, text, type, variables }),
   });
   return res.json();
 }
 
-const SMS_TEMPLATES = [
-  { id: 1, label: "결석 안내", text: "[키맨학원] 안녕하세요, {이름} 학부모님. 오늘 {이름} 학생이 수업에 결석하였습니다. 확인 부탁드립니다." },
-  { id: 2, label: "성적 통보", text: "[키맨학원] {이름} 학생의 이번 테스트 성적이 나왔습니다. 원내 방문 또는 문의 전화 주시기 바랍니다." },
-  { id: 3, label: "수업 일정 변경", text: "[키맨학원] 안녕하세요. 수업 일정이 변경되었습니다. 자세한 내용은 원으로 문의 바랍니다." },
-  { id: 4, label: "공지 전달", text: "[키맨학원] 학부모님께 안내드립니다. 원에서 중요한 공지사항이 있으니 확인 부탁드립니다." },
-  { id: 5, label: "직접 입력", text: "" },
+const NAV = [
+  { id:"dashboard", icon:"⊞", label:"대시보드" },
+  { id:"students",  icon:"◎", label:"학생 관리" },
+  { id:"classes",   icon:"◫", label:"수업 관리" },
+  { id:"schedule",  icon:"▦", label:"시간표" },
+  { id:"grades",    icon:"◈", label:"성적/과제" },
+  { id:"notice",    icon:"◉", label:"공지/메시지" },
+  { id:"sms",       icon:"✉", label:"문자 발송" },
+  { id:"report",    icon:"◧", label:"수업 보고서" },
+  { id:"settings",  icon:"⚙", label:"설정" },
 ];
 
-const CLASSES = [
-  { id: 1, name: "수학 심화반", teacher: "김민준", time: "월·수 16:00", students: 18, room: "A101" },
-  { id: 2, name: "영어 회화반", teacher: "이소연", time: "화·목 17:30", students: 14, room: "B203" },
-  { id: 3, name: "과학 탐구반", teacher: "박도현", time: "수·금 15:00", students: 22, room: "A102" },
-  { id: 4, name: "국어 논술반", teacher: "최지원", time: "월·목 18:00", students: 16, room: "C301" },
-  { id: 5, name: "코딩 기초반", teacher: "정하은", time: "토 10:00", students: 12, room: "D401" },
-];
+export default function App() {
+  const [nav, setNav] = useState("dashboard");
+  const [classes,   setClasses]   = useStore("km_classes",   INIT_CLASSES);
+  const [students,  setStudents]  = useStore("km_students",  INIT_STUDENTS);
+  const [notices,   setNotices]   = useStore("km_notices",   INIT_NOTICES);
+  const [templates, setTemplates] = useStore("km_templates", INIT_TEMPLATES);
+  const [settings,  setSettings]  = useStore("km_settings",  { academyName:"키맨학원", directorName:"원장", fromNumber:"" });
 
-const WEEKLY = [
-  { day: "월", slots: [
-    { time: "16:00", class: "수학 심화반", room: "A101", color: COLORS.accent },
-    { time: "18:00", class: "국어 논술반", room: "C301", color: COLORS.yellow },
-  ]},
-  { day: "화", slots: [
-    { time: "17:30", class: "영어 회화반", room: "B203", color: COLORS.green },
-  ]},
-  { day: "수", slots: [
-    { time: "15:00", class: "과학 탐구반", room: "A102", color: COLORS.red },
-    { time: "16:00", class: "수학 심화반", room: "A101", color: COLORS.accent },
-  ]},
-  { day: "목", slots: [
-    { time: "17:30", class: "영어 회화반", room: "B203", color: COLORS.green },
-    { time: "18:00", class: "국어 논술반", room: "C301", color: COLORS.yellow },
-  ]},
-  { day: "금", slots: [
-    { time: "15:00", class: "과학 탐구반", room: "A102", color: COLORS.red },
-  ]},
-  { day: "토", slots: [
-    { time: "10:00", class: "코딩 기초반", room: "D401", color: "#A78BFA" },
-  ]},
-  { day: "일", slots: [] },
-];
-
-const STUDENTS = [
-  { id: 1, name: "강서준", class: "수학 심화반", avgScore: 92, homework: "완료", trend: "up", parentPhone: "010-1234-5678" },
-  { id: 2, name: "윤아린", class: "영어 회화반", avgScore: 88, homework: "완료", trend: "up", parentPhone: "010-2345-6789" },
-  { id: 3, name: "임재현", class: "과학 탐구반", avgScore: 74, homework: "미제출", trend: "down", parentPhone: "010-3456-7890" },
-  { id: 4, name: "한도연", class: "수학 심화반", avgScore: 95, homework: "완료", trend: "up", parentPhone: "010-4567-8901" },
-  { id: 5, name: "오수민", class: "국어 논술반", avgScore: 81, homework: "완료", trend: "same", parentPhone: "010-5678-9012" },
-  { id: 6, name: "배지호", class: "코딩 기초반", avgScore: 67, homework: "미제출", trend: "down", parentPhone: "010-6789-0123" },
-  { id: 7, name: "신예은", class: "영어 회화반", avgScore: 90, homework: "완료", trend: "up", parentPhone: "010-7890-1234" },
-];
-
-const NOTICES = [
-  { id: 1, type: "공지", title: "6월 모의고사 일정 안내", date: "2026.05.30", author: "키맨학원", read: true, important: true },
-  { id: 2, type: "메시지", title: "[수학 심화반] 추가 과제 공지", date: "2026.05.29", author: "김민준", read: true, important: false },
-  { id: 3, type: "공지", title: "여름 특강 수강신청 안내", date: "2026.05.28", author: "키맨학원", read: false, important: true },
-  { id: 4, type: "메시지", title: "[영어 회화반] 5월 성적표 배부", date: "2026.05.27", author: "이소연", read: false, important: false },
-  { id: 5, type: "공지", title: "원내 청소 당번 변경 안내", date: "2026.05.26", author: "키맨학원", read: true, important: false },
-];
-
-const style = {
-  "@font": `@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&family=Space+Grotesk:wght@400;500;700&display=swap');`,
-};
-
-export default function AcademyApp() {
-  const [activeNav, setActiveNav] = useState("dashboard");
-  const [composeOpen, setComposeOpen] = useState(false);
-  const [composeText, setComposeText] = useState("");
-  const [composeTitle, setComposeTitle] = useState("");
-  const [notices, setNotices] = useState(NOTICES);
-  const [selectedStudent, setSelectedStudent] = useState(null);
-
-  const unreadCount = notices.filter(n => !n.read).length;
-
-  const sendNotice = () => {
-    if (!composeTitle.trim()) return;
-    setNotices([{
-      id: notices.length + 1,
-      type: "공지",
-      title: composeTitle,
-      date: "2026.05.31",
-      author: "키맨학원",
-      read: true,
-      important: false,
-    }, ...notices]);
-    setComposeOpen(false);
-    setComposeTitle("");
-    setComposeText("");
-  };
+  const unread = notices.filter(n => !n.read).length;
+  const store = { classes, setClasses, students, setStudents, notices, setNotices, templates, setTemplates, settings, setSettings };
 
   return (
-    <div style={{
-      minHeight: "100vh",
-      background: COLORS.bg,
-      color: COLORS.text,
-      fontFamily: "'Noto Sans KR', sans-serif",
-      display: "flex",
-    }}>
+    <div style={{ minHeight:"100vh", background:C.bg, color:C.text, fontFamily:"'Noto Sans KR',sans-serif", display:"flex" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&family=Space+Grotesk:wght@400;500;700&display=swap');
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        ::-webkit-scrollbar { width: 4px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #252A3A; border-radius: 2px; }
-        button { cursor: pointer; border: none; background: none; font-family: inherit; }
-        input, textarea { font-family: inherit; }
-        .nav-item { transition: all 0.2s; }
-        .nav-item:hover { background: rgba(59,126,246,0.08) !important; }
-        .nav-item.active { background: rgba(59,126,246,0.12) !important; }
-        .card-hover { transition: transform 0.2s, box-shadow 0.2s; }
-        .card-hover:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
-        .row-hover:hover { background: rgba(59,126,246,0.04) !important; }
-        .btn-primary { transition: all 0.15s; }
-        .btn-primary:hover { opacity: 0.88; transform: translateY(-1px); }
-        .badge-pulse { animation: pulse 2s infinite; }
-        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
-        .fade-in { animation: fadeIn 0.35s ease; }
-        @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:none} }
+        *{box-sizing:border-box;margin:0;padding:0}
+        button{cursor:pointer;border:none;background:none;font-family:inherit}
+        input,textarea,select{font-family:inherit;outline:none}
+        .ni{transition:all 0.15s}.ni:hover{background:rgba(59,126,246,0.07)!important}.ni.on{background:rgba(59,126,246,0.12)!important}
+        .rh:hover{background:rgba(59,126,246,0.03)!important}
+        .bt{transition:all 0.15s}.bt:hover{opacity:0.85;transform:translateY(-1px)}
+        .fade{animation:fi 0.3s ease}@keyframes fi{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+        .spin{animation:sp 0.8s linear infinite}@keyframes sp{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+        ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:#E2E8F0;border-radius:2px}
+        .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.35);z-index:100;display:flex;align-items:center;justify-content:center}
+        .modal{background:#fff;border-radius:16px;padding:28px;width:480px;max-width:90vw;max-height:90vh;overflow-y:auto}
       `}</style>
 
       {/* Sidebar */}
-      <aside style={{
-        width: 72,
-        background: COLORS.card,
-        borderRight: `1px solid ${COLORS.cardBorder}`,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        padding: "20px 0",
-        position: "sticky",
-        top: 0,
-        height: "100vh",
-        zIndex: 10,
-      }}>
-        <div style={{
-          width: 38,
-          height: 38,
-          background: COLORS.accent,
-          borderRadius: 10,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontSize: 18,
-          fontWeight: 900,
-          fontFamily: "'Space Grotesk', sans-serif",
-          marginBottom: 4,
-          boxShadow: `0 4px 12px rgba(59,126,246,0.25)`,
-        }}>K</div>
-        <div style={{ fontSize: 8, color: COLORS.accent, fontWeight: 700, letterSpacing: "0.04em", marginBottom: 24, textAlign: "center" }}>키맨</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, width: "100%" }}>
-          {NAV_ITEMS.map(item => (
-            <button
-              key={item.id}
-              className={`nav-item${activeNav === item.id ? " active" : ""}`}
-              onClick={() => setActiveNav(item.id)}
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                gap: 3,
-                padding: "10px 4px",
-                borderRadius: 8,
-                margin: "0 8px",
-                position: "relative",
-              }}
-              title={item.label}
-            >
-              <span style={{ fontSize: 18, color: activeNav === item.id ? COLORS.accent : COLORS.textMuted }}>{item.icon}</span>
-              <span style={{ fontSize: 9, color: activeNav === item.id ? COLORS.accent : COLORS.textDim, letterSpacing: "0.02em" }}>{item.label}</span>
-              {item.id === "notice" && unreadCount > 0 && (
-                <span className="badge-pulse" style={{
-                  position: "absolute",
-                  top: 6,
-                  right: 10,
-                  width: 14,
-                  height: 14,
-                  background: COLORS.red,
-                  borderRadius: "50%",
-                  fontSize: 8,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontWeight: 700,
-                  color: "#fff",
-                }}>{unreadCount}</span>
+      <aside style={{ width:72, background:C.card, borderRight:`1px solid ${C.border}`, display:"flex", flexDirection:"column", alignItems:"center", padding:"18px 0", position:"sticky", top:0, height:"100vh", zIndex:10, boxShadow:"2px 0 8px rgba(0,0,0,0.04)" }}>
+        <div style={{ width:36, height:36, background:C.accent, borderRadius:10, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, fontWeight:900, fontFamily:"'Space Grotesk',sans-serif", color:"#fff", marginBottom:4, boxShadow:`0 4px 12px rgba(59,126,246,0.3)` }}>K</div>
+        <div style={{ fontSize:8, color:C.accent, fontWeight:700, marginBottom:20 }}>{settings.academyName.slice(0,3)}</div>
+        <div style={{ display:"flex", flexDirection:"column", gap:4, width:"100%" }}>
+          {NAV.map(item => (
+            <button key={item.id} className={`ni${nav===item.id?" on":""}`} onClick={() => setNav(item.id)}
+              style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2, padding:"9px 4px", borderRadius:8, margin:"0 6px", position:"relative" }} title={item.label}>
+              <span style={{ fontSize:16, color:nav===item.id?C.accent:C.dim }}>{item.icon}</span>
+              <span style={{ fontSize:8, color:nav===item.id?C.accent:C.dim, letterSpacing:"0.01em" }}>{item.label}</span>
+              {item.id==="notice"&&unread>0&&(
+                <span style={{ position:"absolute", top:4, right:8, width:13, height:13, background:C.red, borderRadius:"50%", fontSize:7, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:700, color:"#fff" }}>{unread}</span>
               )}
             </button>
           ))}
         </div>
-        <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-          <div style={{
-            width: 32,
-            height: 32,
-            borderRadius: "50%",
-            background: "linear-gradient(135deg, #3B7EF6, #6366F1)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: 13,
-            fontWeight: 700,
-          }}>키</div>
-          <span style={{ fontSize: 9, color: COLORS.textDim }}>키맨학원</span>
+        <div style={{ marginTop:"auto", display:"flex", flexDirection:"column", alignItems:"center", gap:3 }}>
+          <div style={{ width:30, height:30, borderRadius:"50%", background:"linear-gradient(135deg,#3B7EF6,#6366F1)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:700, color:"#fff" }}>
+            {settings.directorName[0]}
+          </div>
+          <span style={{ fontSize:8, color:C.dim }}>{settings.directorName}</span>
         </div>
       </aside>
 
-      {/* Main */}
-      <main style={{ flex: 1, overflow: "auto", padding: "28px 32px" }}>
-        {activeNav === "dashboard" && <Dashboard setActiveNav={setActiveNav} notices={notices} />}
-        {activeNav === "schedule" && <Schedule />}
-        {activeNav === "grades" && <Grades selectedStudent={selectedStudent} setSelectedStudent={setSelectedStudent} />}
-        {activeNav === "notice" && (
-          <NoticePanel
-            notices={notices}
-            setNotices={setNotices}
-            composeOpen={composeOpen}
-            setComposeOpen={setComposeOpen}
-            composeTitle={composeTitle}
-            setComposeTitle={setComposeTitle}
-            composeText={composeText}
-            setComposeText={setComposeText}
-            sendNotice={sendNotice}
-          />
-        )}
-        {activeNav === "sms" && <SMSPanel />}
-        {activeNav === "report" && <ReportPanel />}
+      <main style={{ flex:1, overflow:"auto", padding:"28px 32px" }}>
+        {nav==="dashboard" && <Dashboard store={store} setNav={setNav} />}
+        {nav==="students"  && <StudentsPanel store={store} />}
+        {nav==="classes"   && <ClassesPanel store={store} />}
+        {nav==="schedule"  && <SchedulePanel store={store} />}
+        {nav==="grades"    && <GradesPanel store={store} />}
+        {nav==="notice"    && <NoticePanel store={store} />}
+        {nav==="sms"       && <SMSPanel store={store} />}
+        {nav==="report"    && <ReportPanel store={store} />}
+        {nav==="settings"  && <SettingsPanel store={store} />}
       </main>
     </div>
   );
 }
 
-/* ─── Dashboard ─── */
-function Dashboard({ setActiveNav, notices }) {
-  const unread = notices.filter(n => !n.read).length;
-  return (
-    <div className="fade-in">
-      <Header title="대시보드" subtitle="키맨학원 · 2026년 5월 31일 일요일" />
-      {/* Stats */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 28 }}>
-        {[
-          { label: "전체 학생", value: "82", delta: "+3", color: COLORS.accent, icon: "◎" },
-          { label: "진행 수업", value: "5", delta: "개 반", color: COLORS.green, icon: "◫" },
-          { label: "오늘 출석률", value: "94%", delta: "+2%", color: COLORS.yellow, icon: "✓" },
-          { label: "미확인 메시지", value: String(unread), delta: "건", color: COLORS.red, icon: "◉" },
-        ].map((s, i) => (
-          <div key={i} className="card-hover" style={{
-            background: COLORS.card,
-            border: `1px solid ${COLORS.cardBorder}`,
-            borderRadius: 14,
-            padding: "20px 22px",
-          }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-              <div>
-                <div style={{ fontSize: 11, color: COLORS.textMuted, letterSpacing: "0.06em", marginBottom: 8, textTransform: "uppercase" }}>{s.label}</div>
-                <div style={{ fontSize: 32, fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif", color: s.color, lineHeight: 1 }}>{s.value}</div>
-                <div style={{ fontSize: 11, color: COLORS.textDim, marginTop: 4 }}>{s.delta}</div>
-              </div>
-              <div style={{
-                width: 36, height: 36,
-                background: s.color + "18",
-                borderRadius: 8,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 16, color: s.color,
-              }}>{s.icon}</div>
-            </div>
-          </div>
-        ))}
+// ── 공통 컴포넌트 ──
+function Hdr({ title, sub }) {
+  return <div style={{ marginBottom:24 }}>
+    <h1 style={{ fontSize:22, fontWeight:900, fontFamily:"'Space Grotesk',sans-serif", letterSpacing:"-0.02em" }}>{title}</h1>
+    {sub && <div style={{ fontSize:12, color:C.muted, marginTop:3 }}>{sub}</div>}
+  </div>;
+}
+function Card({ children, style: s }) {
+  return <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:22, ...s }}>{children}</div>;
+}
+function Btn({ children, onClick, color=C.accent, small, outline, style: s }) {
+  return <button className="bt" onClick={onClick} style={{
+    padding: small?"5px 12px":"9px 18px", borderRadius:8, fontSize:small?11:13, fontWeight:600,
+    background: outline?"transparent":color, color: outline?color:"#fff",
+    border: outline?`1.5px solid ${color}`:"none", ...s
+  }}>{children}</button>;
+}
+function Input({ label, value, onChange, placeholder, type="text", style: s }) {
+  return <div style={{ marginBottom:14 }}>
+    {label && <label style={{ fontSize:11, color:C.muted, display:"block", marginBottom:5, fontWeight:500 }}>{label}</label>}
+    <input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}
+      style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", fontSize:13, color:C.text, background:"#fff", ...s }} />
+  </div>;
+}
+function Select({ label, value, onChange, options }) {
+  return <div style={{ marginBottom:14 }}>
+    {label && <label style={{ fontSize:11, color:C.muted, display:"block", marginBottom:5, fontWeight:500 }}>{label}</label>}
+    <select value={value} onChange={e=>onChange(e.target.value)}
+      style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", fontSize:13, color:C.text, background:"#fff" }}>
+      {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+    </select>
+  </div>;
+}
+function Modal({ title, onClose, children }) {
+  return <div className="modal-bg" onClick={e=>e.target===e.currentTarget&&onClose()}>
+    <div className="modal fade">
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+        <div style={{ fontSize:16, fontWeight:700 }}>{title}</div>
+        <button onClick={onClose} style={{ fontSize:20, color:C.muted }}>✕</button>
       </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 20 }}>
-        {/* Today's classes */}
-        <div style={{ background: COLORS.card, border: `1px solid ${COLORS.cardBorder}`, borderRadius: 14, padding: 22 }}>
-          <SectionHeader title="오늘 수업 없음" sub="다음 수업: 내일 월요일" action="일정 보기" onAction={() => setActiveNav("schedule")} />
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 4 }}>
-            {WEEKLY[0].slots.map((slot, i) => (
-              <div key={i} style={{
-                display: "flex", alignItems: "center", gap: 12,
-                background: slot.color + "12",
-                border: `1px solid ${slot.color}30`,
-                borderRadius: 10, padding: "12px 16px",
-              }}>
-                <div style={{ width: 3, height: 36, background: slot.color, borderRadius: 2 }} />
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: COLORS.text }}>{slot.class}</div>
-                  <div style={{ fontSize: 11, color: COLORS.textMuted, marginTop: 2 }}>{slot.time} · {slot.room}</div>
-                </div>
-              </div>
-            ))}
-            <div style={{
-              textAlign: "center", color: COLORS.textDim, fontSize: 12, padding: "16px 0",
-              border: `1px dashed ${COLORS.cardBorder}`, borderRadius: 10,
-            }}>오늘(일요일)은 예정된 수업이 없습니다</div>
-          </div>
-        </div>
-
-        {/* Recent notices */}
-        <div style={{ background: COLORS.card, border: `1px solid ${COLORS.cardBorder}`, borderRadius: 14, padding: 22 }}>
-          <SectionHeader title="최근 공지" sub="" action="전체 보기" onAction={() => setActiveNav("notice")} />
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 4 }}>
-            {notices.slice(0, 4).map(n => (
-              <div key={n.id} className="row-hover" style={{
-                display: "flex", alignItems: "center", gap: 10,
-                padding: "10px 8px", borderRadius: 8,
-                borderLeft: n.important ? `2px solid ${COLORS.accent}` : "2px solid transparent",
-              }}>
-                <span style={{
-                  fontSize: 9, padding: "2px 6px", borderRadius: 4,
-                  background: n.type === "공지" ? COLORS.accentSoft : COLORS.greenSoft,
-                  color: n.type === "공지" ? COLORS.accent : COLORS.green,
-                  fontWeight: 700, letterSpacing: "0.04em",
-                }}>{n.type}</span>
-                <div style={{ flex: 1, overflow: "hidden" }}>
-                  <div style={{ fontSize: 12, fontWeight: n.read ? 400 : 600, color: n.read ? COLORS.textMuted : COLORS.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{n.title}</div>
-                </div>
-                {!n.read && <div style={{ width: 6, height: 6, borderRadius: "50%", background: COLORS.red, flexShrink: 0 }} />}
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Class overview */}
-      <div style={{ background: COLORS.card, border: `1px solid ${COLORS.cardBorder}`, borderRadius: 14, padding: 22, marginTop: 20 }}>
-        <SectionHeader title="반 현황" sub={`총 ${CLASSES.length}개 반`} action="성적 관리" onAction={() => setActiveNav("grades")} />
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, marginTop: 8 }}>
-          {CLASSES.map((c, i) => {
-            const colors = [COLORS.accent, COLORS.green, COLORS.red, COLORS.yellow, "#A78BFA"];
-            const col = colors[i % colors.length];
-            return (
-              <div key={c.id} className="card-hover" style={{
-                background: col + "10",
-                border: `1px solid ${col}25`,
-                borderRadius: 10, padding: "14px 16px",
-              }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: col, marginBottom: 6 }}>{c.name}</div>
-                <div style={{ fontSize: 11, color: COLORS.textMuted, marginBottom: 2 }}>선생님: {c.teacher}</div>
-                <div style={{ fontSize: 11, color: COLORS.textMuted, marginBottom: 2 }}>시간: {c.time}</div>
-                <div style={{ fontSize: 11, color: COLORS.textMuted }}>학생: {c.students}명</div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      {children}
     </div>
-  );
+  </div>;
+}
+function Badge({ children, color=C.accent }) {
+  return <span style={{ fontSize:10, padding:"2px 8px", borderRadius:10, background:color+"18", color, fontWeight:700 }}>{children}</span>;
 }
 
-/* ─── Schedule ─── */
-function Schedule() {
-  return (
-    <div className="fade-in">
-      <Header title="수업 일정" subtitle="키맨학원 · 2026년 6월 시간표" />
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 12 }}>
-        {WEEKLY.map((day, i) => (
-          <div key={i} style={{
-            background: COLORS.card,
-            border: `1px solid ${COLORS.cardBorder}`,
-            borderRadius: 14,
-            padding: 14,
-            minHeight: 260,
-          }}>
-            <div style={{
-              fontSize: 13, fontWeight: 700,
-              color: i === 6 ? COLORS.textDim : i === 5 ? "#A78BFA" : COLORS.text,
-              marginBottom: 14,
-              fontFamily: "'Space Grotesk', sans-serif",
-            }}>{day.day}</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {day.slots.length === 0 ? (
-                <div style={{ fontSize: 11, color: COLORS.textDim, textAlign: "center", paddingTop: 16 }}>없음</div>
-              ) : day.slots.map((slot, j) => (
-                <div key={j} style={{
-                  background: slot.color + "18",
-                  border: `1px solid ${slot.color}35`,
-                  borderRadius: 8,
-                  padding: "10px 10px",
-                  borderLeft: `3px solid ${slot.color}`,
-                }}>
-                  <div style={{ fontSize: 10, color: slot.color, fontWeight: 700, marginBottom: 4 }}>{slot.time}</div>
-                  <div style={{ fontSize: 11, color: COLORS.text, fontWeight: 600, lineHeight: 1.3 }}>{slot.class}</div>
-                  <div style={{ fontSize: 10, color: COLORS.textMuted, marginTop: 3 }}>{slot.room}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-      <div style={{ background: COLORS.card, border: `1px solid ${COLORS.cardBorder}`, borderRadius: 14, padding: 22, marginTop: 20 }}>
-        <SectionHeader title="전체 수업 목록" sub="" />
-        <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 12 }}>
-          <thead>
-            <tr style={{ borderBottom: `1px solid ${COLORS.cardBorder}` }}>
-              {["반 이름", "담당 선생님", "수업 시간", "수강생 수", "강의실"].map(h => (
-                <th key={h} style={{ textAlign: "left", padding: "8px 12px", fontSize: 11, color: COLORS.textMuted, fontWeight: 500, letterSpacing: "0.04em" }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {CLASSES.map((c, i) => {
-              const colors = [COLORS.accent, COLORS.green, COLORS.red, COLORS.yellow, "#A78BFA"];
-              return (
-                <tr key={c.id} className="row-hover" style={{ borderBottom: `1px solid ${COLORS.cardBorder}22` }}>
-                  <td style={{ padding: "12px 12px" }}>
-                    <span style={{ color: colors[i % colors.length], fontWeight: 600, fontSize: 13 }}>{c.name}</span>
-                  </td>
-                  <td style={{ padding: "12px 12px", fontSize: 13, color: COLORS.textMuted }}>{c.teacher}</td>
-                  <td style={{ padding: "12px 12px", fontSize: 13, color: COLORS.textMuted }}>{c.time}</td>
-                  <td style={{ padding: "12px 12px", fontSize: 13, color: COLORS.text, fontWeight: 600 }}>{c.students}명</td>
-                  <td style={{ padding: "12px 12px", fontSize: 13, color: COLORS.textMuted }}>{c.room}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-/* ─── Grades ─── */
-function Grades({ selectedStudent, setSelectedStudent }) {
-  return (
-    <div className="fade-in">
-      <Header title="성적 / 과제 관리" subtitle="키맨학원 · 학생별 성취도 현황" />
-      <div style={{ background: COLORS.card, border: `1px solid ${COLORS.cardBorder}`, borderRadius: 14, padding: 22 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-          <div>
-            <div style={{ fontSize: 15, fontWeight: 700 }}>학생 목록</div>
-            <div style={{ fontSize: 11, color: COLORS.textMuted, marginTop: 2 }}>총 {STUDENTS.length}명</div>
-          </div>
-        </div>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr style={{ borderBottom: `1px solid ${COLORS.cardBorder}` }}>
-              {["이름", "수강반", "평균 점수", "과제 상태", "추세", ""].map(h => (
-                <th key={h} style={{ textAlign: "left", padding: "8px 14px", fontSize: 11, color: COLORS.textMuted, fontWeight: 500, letterSpacing: "0.04em" }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {STUDENTS.map(s => (
-              <tr key={s.id} className="row-hover" style={{
-                borderBottom: `1px solid ${COLORS.cardBorder}22`,
-                background: selectedStudent?.id === s.id ? "rgba(59,126,246,0.06)" : "transparent",
-              }}>
-                <td style={{ padding: "13px 14px", fontWeight: 600, fontSize: 13 }}>{s.name}</td>
-                <td style={{ padding: "13px 14px", fontSize: 12, color: COLORS.textMuted }}>{s.class}</td>
-                <td style={{ padding: "13px 14px" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <div style={{
-                      width: 60, height: 5, background: COLORS.cardBorder, borderRadius: 3, overflow: "hidden"
-                    }}>
-                      <div style={{
-                        height: "100%",
-                        width: `${s.avgScore}%`,
-                        background: s.avgScore >= 90 ? COLORS.green : s.avgScore >= 75 ? COLORS.accent : COLORS.yellow,
-                        borderRadius: 3,
-                        transition: "width 0.5s",
-                      }} />
-                    </div>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: s.avgScore >= 90 ? COLORS.green : s.avgScore >= 75 ? COLORS.accent : COLORS.yellow }}>{s.avgScore}</span>
-                  </div>
-                </td>
-                <td style={{ padding: "13px 14px" }}>
-                  <span style={{
-                    fontSize: 11, padding: "3px 8px", borderRadius: 5, fontWeight: 600,
-                    background: s.homework === "완료" ? COLORS.greenSoft : COLORS.redSoft,
-                    color: s.homework === "완료" ? COLORS.green : COLORS.red,
-                  }}>{s.homework}</span>
-                </td>
-                <td style={{ padding: "13px 14px", fontSize: 16 }}>
-                  {s.trend === "up" ? <span style={{ color: COLORS.green }}>↑</span>
-                    : s.trend === "down" ? <span style={{ color: COLORS.red }}>↓</span>
-                    : <span style={{ color: COLORS.textDim }}>→</span>}
-                </td>
-                <td style={{ padding: "13px 14px" }}>
-                  <button
-                    className="btn-primary"
-                    onClick={() => setSelectedStudent(selectedStudent?.id === s.id ? null : s)}
-                    style={{
-                      fontSize: 11, padding: "4px 10px", borderRadius: 6,
-                      background: selectedStudent?.id === s.id ? COLORS.accentSoft : COLORS.cardBorder,
-                      color: selectedStudent?.id === s.id ? COLORS.accent : COLORS.textMuted,
-                    }}
-                  >{selectedStudent?.id === s.id ? "닫기" : "상세"}</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {selectedStudent && (
-        <div className="fade-in" style={{ background: COLORS.card, border: `1px solid ${COLORS.accent}40`, borderRadius: 14, padding: 24, marginTop: 16 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
+// ── 대시보드 ──
+function Dashboard({ store, setNav }) {
+  const { classes, students, notices } = store;
+  const unread = notices.filter(n=>!n.read).length;
+  const today = new Date().toLocaleDateString("ko-KR",{year:"numeric",month:"long",day:"numeric",weekday:"long"});
+  return <div className="fade">
+    <Hdr title="대시보드" sub={today} />
+    <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:14, marginBottom:24 }}>
+      {[
+        { label:"전체 학생", value:students.length+"명", color:C.accent, icon:"◎", nav:"students" },
+        { label:"진행 수업", value:classes.length+"개 반", color:C.green, icon:"◫", nav:"classes" },
+        { label:"미제출 과제", value:students.filter(s=>s.homework==="미제출").length+"명", color:C.yellow, icon:"◈", nav:"grades" },
+        { label:"미확인 메시지", value:unread+"건", color:C.red, icon:"◉", nav:"notice" },
+      ].map((s,i) => (
+        <div key={i} onClick={()=>setNav(s.nav)} style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:"18px 20px", cursor:"pointer", transition:"all 0.15s" }}
+          onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"}
+          onMouseLeave={e=>e.currentTarget.style.transform="none"}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
             <div>
-              <div style={{ fontSize: 18, fontWeight: 700 }}>{selectedStudent.name} <span style={{ color: COLORS.textMuted, fontSize: 13, fontWeight: 400 }}>학생 상세</span></div>
-              <div style={{ fontSize: 12, color: COLORS.textMuted, marginTop: 3 }}>{selectedStudent.class} 수강 중</div>
+              <div style={{ fontSize:11, color:C.muted, marginBottom:8, textTransform:"uppercase", letterSpacing:"0.05em" }}>{s.label}</div>
+              <div style={{ fontSize:28, fontWeight:700, fontFamily:"'Space Grotesk',sans-serif", color:s.color }}>{s.value}</div>
             </div>
-            <button onClick={() => setSelectedStudent(null)} style={{ color: COLORS.textMuted, fontSize: 18 }}>✕</button>
+            <div style={{ width:34, height:34, background:s.color+"15", borderRadius:8, display:"flex", alignItems:"center", justifyContent:"center", fontSize:15, color:s.color }}>{s.icon}</div>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
-            {[
-              { label: "평균 점수", value: selectedStudent.avgScore, color: COLORS.accent },
-              { label: "과제 상태", value: selectedStudent.homework, color: selectedStudent.homework === "완료" ? COLORS.green : COLORS.red },
-              { label: "성적 추세", value: selectedStudent.trend === "up" ? "상승 ↑" : selectedStudent.trend === "down" ? "하락 ↓" : "유지 →", color: selectedStudent.trend === "up" ? COLORS.green : selectedStudent.trend === "down" ? COLORS.red : COLORS.textMuted },
-              { label: "수강반", value: selectedStudent.class.replace("반", ""), color: COLORS.yellow },
-            ].map((item, i) => (
-              <div key={i} style={{ background: COLORS.bg, borderRadius: 10, padding: "14px 16px" }}>
-                <div style={{ fontSize: 10, color: COLORS.textDim, marginBottom: 6, letterSpacing: "0.06em", textTransform: "uppercase" }}>{item.label}</div>
-                <div style={{ fontSize: 20, fontWeight: 700, color: item.color, fontFamily: "'Space Grotesk', sans-serif" }}>{item.value}</div>
+        </div>
+      ))}
+    </div>
+    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:18 }}>
+      <Card>
+        <div style={{ fontSize:14, fontWeight:700, marginBottom:14 }}>반 현황</div>
+        <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+          {classes.map((c,i) => (
+            <div key={c.id} className="rh" style={{ display:"flex", alignItems:"center", gap:12, padding:"9px 10px", borderRadius:8 }}>
+              <div style={{ width:6, height:6, borderRadius:"50%", background:COLORS_LIST[i%COLORS_LIST.length], flexShrink:0 }} />
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:13, fontWeight:600 }}>{c.name}</div>
+                <div style={{ fontSize:11, color:C.muted }}>{c.teacher} · {c.time} · {c.room}</div>
               </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ─── Notice Panel ─── */
-function NoticePanel({ notices, setNotices, composeOpen, setComposeOpen, composeTitle, setComposeTitle, composeText, setComposeText, sendNotice }) {
-  return (
-    <div className="fade-in">
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 28 }}>
-        <Header title="공지 / 메시지" subtitle="학생 및 강사 커뮤니케이션" noMargin />
-        <button
-          className="btn-primary"
-          onClick={() => setComposeOpen(!composeOpen)}
-          style={{
-            background: COLORS.accent,
-            color: "#fff",
-            padding: "10px 18px",
-            borderRadius: 10,
-            fontSize: 13,
-            fontWeight: 600,
-            marginTop: 4,
-          }}
-        >+ 공지 작성</button>
-      </div>
-
-      {composeOpen && (
-        <div className="fade-in" style={{
-          background: COLORS.card,
-          border: `1px solid ${COLORS.accent}50`,
-          borderRadius: 14,
-          padding: 22,
-          marginBottom: 20,
-        }}>
-          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14, color: COLORS.accent }}>새 공지 작성</div>
-          <input
-            value={composeTitle}
-            onChange={e => setComposeTitle(e.target.value)}
-            placeholder="제목을 입력하세요"
-            style={{
-              width: "100%", background: COLORS.bg, border: `1px solid ${COLORS.cardBorder}`,
-              borderRadius: 8, padding: "10px 14px", color: COLORS.text, fontSize: 13,
-              marginBottom: 12, outline: "none",
-            }}
-          />
-          <textarea
-            value={composeText}
-            onChange={e => setComposeText(e.target.value)}
-            placeholder="내용을 입력하세요"
-            rows={4}
-            style={{
-              width: "100%", background: COLORS.bg, border: `1px solid ${COLORS.cardBorder}`,
-              borderRadius: 8, padding: "10px 14px", color: COLORS.text, fontSize: 13,
-              outline: "none", resize: "vertical",
-            }}
-          />
-          <div style={{ display: "flex", gap: 10, marginTop: 14, justifyContent: "flex-end" }}>
-            <button
-              onClick={() => setComposeOpen(false)}
-              style={{ padding: "8px 16px", borderRadius: 8, background: COLORS.cardBorder, color: COLORS.textMuted, fontSize: 13 }}
-            >취소</button>
-            <button
-              className="btn-primary"
-              onClick={sendNotice}
-              style={{ padding: "8px 20px", borderRadius: 8, background: COLORS.accent, color: "#fff", fontSize: 13, fontWeight: 600 }}
-            >발송</button>
-          </div>
-        </div>
-      )}
-
-      <div style={{ background: COLORS.card, border: `1px solid ${COLORS.cardBorder}`, borderRadius: 14, overflow: "hidden" }}>
-        <div style={{ padding: "16px 22px", borderBottom: `1px solid ${COLORS.cardBorder}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ fontSize: 14, fontWeight: 700 }}>전체 공지/메시지</div>
-          <div style={{ fontSize: 12, color: COLORS.textMuted }}>총 {notices.length}건</div>
-        </div>
-        {notices.map((n, i) => (
-          <div
-            key={n.id}
-            className="row-hover"
-            onClick={() => setNotices(prev => prev.map(x => x.id === n.id ? { ...x, read: true } : x))}
-            style={{
-              display: "flex", alignItems: "center", gap: 14,
-              padding: "15px 22px",
-              borderBottom: i < notices.length - 1 ? `1px solid ${COLORS.cardBorder}22` : "none",
-              cursor: "pointer",
-              background: n.read ? "transparent" : "rgba(59,126,246,0.04)",
-            }}
-          >
-            {!n.read && <div style={{ width: 6, height: 6, borderRadius: "50%", background: COLORS.accent, flexShrink: 0 }} />}
-            {n.read && <div style={{ width: 6, height: 6, flexShrink: 0 }} />}
-            <span style={{
-              fontSize: 10, padding: "2px 7px", borderRadius: 4, flexShrink: 0,
-              background: n.type === "공지" ? COLORS.accentSoft : COLORS.greenSoft,
-              color: n.type === "공지" ? COLORS.accent : COLORS.green,
-              fontWeight: 700,
-            }}>{n.type}</span>
-            {n.important && <span style={{ fontSize: 10, color: COLORS.yellow }}>★</span>}
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13, fontWeight: n.read ? 400 : 600, color: n.read ? COLORS.textMuted : COLORS.text }}>{n.title}</div>
+              <Badge color={COLORS_LIST[i%COLORS_LIST.length]}>{students.filter(s=>s.classId===c.id).length}명</Badge>
             </div>
-            <div style={{ fontSize: 11, color: COLORS.textDim, flexShrink: 0 }}>{n.author}</div>
-            <div style={{ fontSize: 11, color: COLORS.textDim, flexShrink: 0 }}>{n.date}</div>
+          ))}
+        </div>
+      </Card>
+      <Card>
+        <div style={{ fontSize:14, fontWeight:700, marginBottom:14 }}>최근 공지</div>
+        <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+          {notices.slice(0,5).map(n => (
+            <div key={n.id} className="rh" style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 10px", borderRadius:8, borderLeft:`2px solid ${n.important?C.accent:"transparent"}` }}>
+              <Badge color={n.type==="공지"?C.accent:C.green}>{n.type}</Badge>
+              <div style={{ flex:1, fontSize:12, fontWeight:n.read?400:600, color:n.read?C.muted:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{n.title}</div>
+              {!n.read && <div style={{ width:6, height:6, borderRadius:"50%", background:C.red, flexShrink:0 }} />}
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
+  </div>;
+}
+
+// ── 학생 관리 ──
+function StudentsPanel({ store }) {
+  const { classes, students, setStudents } = store;
+  const [modal, setModal] = useState(null); // null | "add" | student obj
+  const [form, setForm] = useState({});
+  const [search, setSearch] = useState("");
+  const [filterClass, setFilterClass] = useState("all");
+
+  const open = (s) => { setForm(s ? {...s} : { name:"", classId:classes[0]?.id||1, avgScore:80, homework:"완료", trend:"same", parentPhone:"" }); setModal(s||"add"); };
+  const save = () => {
+    if (!form.name) return alert("이름을 입력하세요");
+    if (modal==="add") setStudents(p=>[...p,{...form,id:Date.now(),avgScore:Number(form.avgScore||80)}]);
+    else setStudents(p=>p.map(s=>s.id===form.id?{...form,avgScore:Number(form.avgScore)}:s));
+    setModal(null);
+  };
+  const del = (id) => { if(confirm("삭제하시겠습니까?")) setStudents(p=>p.filter(s=>s.id!==id)); };
+
+  const filtered = students.filter(s => {
+    const cls = classes.find(c=>c.id===s.classId);
+    return (filterClass==="all"||s.classId===Number(filterClass)) &&
+      (s.name.includes(search) || (cls?.name||"").includes(search));
+  });
+
+  return <div className="fade">
+    <Hdr title="학생 관리" sub={`전체 ${students.length}명`} />
+    <Card style={{ marginBottom:16 }}>
+      <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 학생 이름 검색"
+          style={{ flex:1, border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 12px", fontSize:13 }} />
+        <select value={filterClass} onChange={e=>setFilterClass(e.target.value)}
+          style={{ border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 12px", fontSize:13, color:C.text }}>
+          <option value="all">전체 반</option>
+          {classes.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+        <Btn onClick={()=>open(null)}>+ 학생 추가</Btn>
+      </div>
+    </Card>
+    <Card>
+      <table style={{ width:"100%", borderCollapse:"collapse" }}>
+        <thead><tr style={{ borderBottom:`1px solid ${C.border}` }}>
+          {["이름","수강반","학부모 연락처","평균 점수","과제","추세",""].map(h=>(
+            <th key={h} style={{ textAlign:"left", padding:"8px 12px", fontSize:11, color:C.muted, fontWeight:500 }}>{h}</th>
+          ))}
+        </tr></thead>
+        <tbody>
+          {filtered.map(s => {
+            const cls = classes.find(c=>c.id===s.classId);
+            return <tr key={s.id} className="rh" style={{ borderBottom:`1px solid ${C.border}22` }}>
+              <td style={{ padding:"12px", fontWeight:600, fontSize:13 }}>{s.name}</td>
+              <td style={{ padding:"12px", fontSize:12, color:C.muted }}>{cls?.name||"미지정"}</td>
+              <td style={{ padding:"12px", fontSize:12, color:C.muted }}>{s.parentPhone||"-"}</td>
+              <td style={{ padding:"12px" }}>
+                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                  <div style={{ width:50, height:4, background:C.border, borderRadius:2, overflow:"hidden" }}>
+                    <div style={{ height:"100%", width:`${s.avgScore}%`, background:s.avgScore>=90?C.green:s.avgScore>=75?C.accent:C.yellow, borderRadius:2 }} />
+                  </div>
+                  <span style={{ fontSize:13, fontWeight:700, color:s.avgScore>=90?C.green:s.avgScore>=75?C.accent:C.yellow }}>{s.avgScore}</span>
+                </div>
+              </td>
+              <td style={{ padding:"12px" }}><Badge color={s.homework==="완료"?C.green:C.red}>{s.homework}</Badge></td>
+              <td style={{ padding:"12px", fontSize:15 }}>{s.trend==="up"?"↑":s.trend==="down"?"↓":"→"}</td>
+              <td style={{ padding:"12px" }}>
+                <div style={{ display:"flex", gap:6 }}>
+                  <Btn small outline onClick={()=>open(s)}>수정</Btn>
+                  <Btn small outline color={C.red} onClick={()=>del(s.id)}>삭제</Btn>
+                </div>
+              </td>
+            </tr>;
+          })}
+        </tbody>
+      </table>
+      {filtered.length===0 && <div style={{ textAlign:"center", padding:"32px", color:C.dim }}>학생이 없습니다</div>}
+    </Card>
+
+    {modal && <Modal title={modal==="add"?"학생 추가":"학생 수정"} onClose={()=>setModal(null)}>
+      <Input label="이름" value={form.name||""} onChange={v=>setForm(p=>({...p,name:v}))} placeholder="학생 이름" />
+      <Select label="수강반" value={form.classId||""} onChange={v=>setForm(p=>({...p,classId:Number(v)}))}
+        options={classes.map(c=>({value:c.id,label:c.name}))} />
+      <Input label="학부모 연락처" value={form.parentPhone||""} onChange={v=>setForm(p=>({...p,parentPhone:v}))} placeholder="010-0000-0000" />
+      <Input label="평균 점수" type="number" value={form.avgScore||""} onChange={v=>setForm(p=>({...p,avgScore:v}))} placeholder="0~100" />
+      <Select label="과제 상태" value={form.homework||"완료"} onChange={v=>setForm(p=>({...p,homework:v}))}
+        options={[{value:"완료",label:"완료"},{value:"미제출",label:"미제출"}]} />
+      <Select label="성적 추세" value={form.trend||"same"} onChange={v=>setForm(p=>({...p,trend:v}))}
+        options={[{value:"up",label:"↑ 상승"},{value:"same",label:"→ 유지"},{value:"down",label:"↓ 하락"}]} />
+      <div style={{ display:"flex", gap:10, justifyContent:"flex-end", marginTop:8 }}>
+        <Btn outline color={C.muted} onClick={()=>setModal(null)}>취소</Btn>
+        <Btn onClick={save}>저장</Btn>
+      </div>
+    </Modal>}
+  </div>;
+}
+
+// ── 수업 관리 ──
+function ClassesPanel({ store }) {
+  const { classes, setClasses, students } = store;
+  const [modal, setModal] = useState(null);
+  const [form, setForm] = useState({});
+
+  const open = (c) => { setForm(c?{...c}:{name:"",teacher:"",time:"",room:"",days:[]}); setModal(c||"add"); };
+  const save = () => {
+    if(!form.name) return alert("반 이름을 입력하세요");
+    if(modal==="add") setClasses(p=>[...p,{...form,id:Date.now()}]);
+    else setClasses(p=>p.map(c=>c.id===form.id?{...form}:c));
+    setModal(null);
+  };
+  const del = (id) => { if(confirm("삭제하시겠습니까?")) setClasses(p=>p.filter(c=>c.id!==id)); };
+  const toggleDay = (d) => setForm(p=>({...p,days:p.days?.includes(d)?p.days.filter(x=>x!==d):[...(p.days||[]),d]}));
+
+  return <div className="fade">
+    <Hdr title="수업 관리" sub={`전체 ${classes.length}개 반`} />
+    <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:14 }}>
+      <Btn onClick={()=>open(null)}>+ 수업 추가</Btn>
+    </div>
+    <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:14 }}>
+      {classes.map((c,i) => {
+        const cnt = students.filter(s=>s.classId===c.id).length;
+        return <Card key={c.id} style={{ borderLeft:`3px solid ${COLORS_LIST[i%COLORS_LIST.length]}` }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}>
+            <div style={{ fontSize:15, fontWeight:700, color:COLORS_LIST[i%COLORS_LIST.length] }}>{c.name}</div>
+            <div style={{ display:"flex", gap:6 }}>
+              <Btn small outline onClick={()=>open(c)}>수정</Btn>
+              <Btn small outline color={C.red} onClick={()=>del(c.id)}>삭제</Btn>
+            </div>
           </div>
-        ))}
+          {[["담당 선생님", c.teacher],["수업 시간", c.time],["강의실", c.room],["수강생", cnt+"명"]].map(([k,v])=>(
+            <div key={k} style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom:6 }}>
+              <span style={{ color:C.muted }}>{k}</span><span style={{ fontWeight:600 }}>{v}</span>
+            </div>
+          ))}
+          {c.days?.length>0 && <div style={{ display:"flex", gap:4, marginTop:10 }}>
+            {c.days.map(d=><Badge key={d} color={COLORS_LIST[i%COLORS_LIST.length]}>{d}</Badge>)}
+          </div>}
+        </Card>;
+      })}
+    </div>
+
+    {modal && <Modal title={modal==="add"?"수업 추가":"수업 수정"} onClose={()=>setModal(null)}>
+      <Input label="반 이름" value={form.name||""} onChange={v=>setForm(p=>({...p,name:v}))} placeholder="예: 수학 심화반" />
+      <Input label="담당 선생님" value={form.teacher||""} onChange={v=>setForm(p=>({...p,teacher:v}))} placeholder="선생님 이름" />
+      <Input label="수업 시간" value={form.time||""} onChange={v=>setForm(p=>({...p,time:v}))} placeholder="예: 월·수 16:00" />
+      <Input label="강의실" value={form.room||""} onChange={v=>setForm(p=>({...p,room:v}))} placeholder="예: A101" />
+      <div style={{ marginBottom:14 }}>
+        <label style={{ fontSize:11, color:C.muted, display:"block", marginBottom:8, fontWeight:500 }}>수업 요일</label>
+        <div style={{ display:"flex", gap:6 }}>
+          {DAYS.map(d=>(
+            <button key={d} onClick={()=>toggleDay(d)} style={{ width:34, height:34, borderRadius:8, fontSize:13, fontWeight:600, border:`1.5px solid ${form.days?.includes(d)?C.accent:C.border}`, background:form.days?.includes(d)?C.accentSoft:"#fff", color:form.days?.includes(d)?C.accent:C.muted }}>{d}</button>
+          ))}
+        </div>
       </div>
-    </div>
-  );
-}
-
-/* ─── Shared ─── */
-function Header({ title, subtitle, noMargin }) {
-  return (
-    <div style={{ marginBottom: noMargin ? 0 : 28 }}>
-      <h1 style={{ fontSize: 22, fontWeight: 900, color: COLORS.text, fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "-0.02em" }}>{title}</h1>
-      {subtitle && <div style={{ fontSize: 12, color: COLORS.textMuted, marginTop: 4 }}>{subtitle}</div>}
-    </div>
-  );
-}
-
-function SectionHeader({ title, sub, action, onAction }) {
-  return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
-      <div>
-        <div style={{ fontSize: 14, fontWeight: 700 }}>{title}</div>
-        {sub && <div style={{ fontSize: 11, color: COLORS.textMuted, marginTop: 2 }}>{sub}</div>}
+      <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
+        <Btn outline color={C.muted} onClick={()=>setModal(null)}>취소</Btn>
+        <Btn onClick={save}>저장</Btn>
       </div>
-      {action && (
-        <button onClick={onAction} style={{ fontSize: 11, color: COLORS.accent, padding: "4px 10px", borderRadius: 6, background: COLORS.accentSoft }}>
-          {action} →
-        </button>
-      )}
-    </div>
-  );
+    </Modal>}
+  </div>;
 }
 
-/* ─── SMS Panel ─── */
-function SMSPanel() {
-  const [selectedStudents, setSelectedStudents] = useState([]);
-  const [templateId, setTemplateId] = useState(1);
-  const [customText, setCustomText] = useState("");
+// ── 시간표 ──
+function SchedulePanel({ store }) {
+  const { classes } = store;
+  return <div className="fade">
+    <Hdr title="주간 시간표" />
+    <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:10 }}>
+      {DAYS.map((day,di) => {
+        const dayClasses = classes.filter(c=>c.days?.includes(day));
+        return <Card key={day} style={{ minHeight:240, padding:14 }}>
+          <div style={{ fontSize:13, fontWeight:700, color:di>=5?C.accent:C.text, marginBottom:12 }}>{day}</div>
+          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+            {dayClasses.length===0
+              ? <div style={{ fontSize:11, color:C.dim, textAlign:"center", paddingTop:16 }}>없음</div>
+              : dayClasses.map((c,i) => (
+                <div key={c.id} style={{ background:COLORS_LIST[i%COLORS_LIST.length]+"12", borderLeft:`3px solid ${COLORS_LIST[i%COLORS_LIST.length]}`, borderRadius:8, padding:"9px 10px" }}>
+                  <div style={{ fontSize:10, color:COLORS_LIST[i%COLORS_LIST.length], fontWeight:700, marginBottom:3 }}>{c.time}</div>
+                  <div style={{ fontSize:11, fontWeight:600 }}>{c.name}</div>
+                  <div style={{ fontSize:10, color:C.muted }}>{c.room}</div>
+                </div>
+              ))
+            }
+          </div>
+        </Card>;
+      })}
+    </div>
+  </div>;
+}
+
+// ── 성적/과제 관리 ──
+function GradesPanel({ store }) {
+  const { classes, students, setStudents } = store;
+  const [editing, setEditing] = useState(null);
+  const [filterClass, setFilterClass] = useState("all");
+
+  const filtered = students.filter(s=>filterClass==="all"||s.classId===Number(filterClass));
+
+  const update = (id, field, val) => setStudents(p=>p.map(s=>s.id===id?{...s,[field]:field==="avgScore"?Number(val):val}:s));
+
+  return <div className="fade">
+    <Hdr title="성적 / 과제 관리" sub="클릭하여 바로 수정 가능" />
+    <Card style={{ marginBottom:14 }}>
+      <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+        <select value={filterClass} onChange={e=>setFilterClass(e.target.value)}
+          style={{ border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 12px", fontSize:13, color:C.text }}>
+          <option value="all">전체 반</option>
+          {classes.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+        <span style={{ fontSize:12, color:C.muted }}>총 {filtered.length}명</span>
+      </div>
+    </Card>
+    <Card>
+      <table style={{ width:"100%", borderCollapse:"collapse" }}>
+        <thead><tr style={{ borderBottom:`1px solid ${C.border}` }}>
+          {["이름","수강반","평균 점수","과제 상태","추세","비고"].map(h=>(
+            <th key={h} style={{ textAlign:"left", padding:"8px 12px", fontSize:11, color:C.muted, fontWeight:500 }}>{h}</th>
+          ))}
+        </tr></thead>
+        <tbody>
+          {filtered.map(s => {
+            const cls = classes.find(c=>c.id===s.classId);
+            return <tr key={s.id} className="rh" style={{ borderBottom:`1px solid ${C.border}22` }}>
+              <td style={{ padding:"11px 12px", fontWeight:600 }}>{s.name}</td>
+              <td style={{ padding:"11px 12px", fontSize:12, color:C.muted }}>{cls?.name||"-"}</td>
+              <td style={{ padding:"11px 12px" }}>
+                {editing===s.id+"score"
+                  ? <input type="number" defaultValue={s.avgScore} autoFocus onBlur={e=>{update(s.id,"avgScore",e.target.value);setEditing(null);}} style={{ width:60, border:`1px solid ${C.accent}`, borderRadius:6, padding:"4px 8px", fontSize:13 }} />
+                  : <span onClick={()=>setEditing(s.id+"score")} style={{ cursor:"pointer", fontWeight:700, color:s.avgScore>=90?C.green:s.avgScore>=75?C.accent:C.yellow, borderBottom:`1px dashed ${C.border}` }}>{s.avgScore}</span>
+                }
+              </td>
+              <td style={{ padding:"11px 12px" }}>
+                <select value={s.homework} onChange={e=>update(s.id,"homework",e.target.value)}
+                  style={{ border:`1px solid ${s.homework==="완료"?C.green:C.red}`, borderRadius:6, padding:"3px 8px", fontSize:12, color:s.homework==="완료"?C.green:C.red, background:s.homework==="완료"?C.greenSoft:C.redSoft }}>
+                  <option value="완료">완료</option><option value="미제출">미제출</option>
+                </select>
+              </td>
+              <td style={{ padding:"11px 12px" }}>
+                <select value={s.trend} onChange={e=>update(s.id,"trend",e.target.value)}
+                  style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"3px 8px", fontSize:12 }}>
+                  <option value="up">↑ 상승</option><option value="same">→ 유지</option><option value="down">↓ 하락</option>
+                </select>
+              </td>
+              <td style={{ padding:"11px 12px", fontSize:11, color:C.muted }}>{s.parentPhone}</td>
+            </tr>;
+          })}
+        </tbody>
+      </table>
+    </Card>
+  </div>;
+}
+
+// ── 공지/메시지 ──
+function NoticePanel({ store }) {
+  const { notices, setNotices } = store;
+  const [modal, setModal] = useState(false);
+  const [form, setForm] = useState({ type:"공지", title:"", important:false });
+
+  const add = () => {
+    if(!form.title) return alert("제목을 입력하세요");
+    const today = new Date().toLocaleDateString("ko-KR").replace(/\. /g,".").replace(".","").slice(0,-1);
+    setNotices(p=>[{...form,id:Date.now(),date:today,author:"키맨학원",read:true},...p]);
+    setModal(false); setForm({type:"공지",title:"",important:false});
+  };
+  const del = (id) => { if(confirm("삭제하시겠습니까?")) setNotices(p=>p.filter(n=>n.id!==id)); };
+  const read = (id) => setNotices(p=>p.map(n=>n.id===id?{...n,read:true}:n));
+
+  return <div className="fade">
+    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:24 }}>
+      <Hdr title="공지 / 메시지" sub={`전체 ${notices.length}건`} />
+      <Btn onClick={()=>setModal(true)}>+ 공지 작성</Btn>
+    </div>
+    <Card>
+      {notices.map((n,i) => (
+        <div key={n.id} className="rh" onClick={()=>read(n.id)} style={{ display:"flex", alignItems:"center", gap:12, padding:"14px 16px", borderBottom:i<notices.length-1?`1px solid ${C.border}22`:"none", cursor:"pointer", background:n.read?"transparent":"rgba(59,126,246,0.02)" }}>
+          <div style={{ width:6, height:6, borderRadius:"50%", background:n.read?"transparent":C.accent, flexShrink:0 }} />
+          <Badge color={n.type==="공지"?C.accent:C.green}>{n.type}</Badge>
+          {n.important && <span style={{ color:C.yellow, fontSize:13 }}>★</span>}
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:13, fontWeight:n.read?400:600 }}>{n.title}</div>
+          </div>
+          <span style={{ fontSize:11, color:C.dim }}>{n.author}</span>
+          <span style={{ fontSize:11, color:C.dim }}>{n.date}</span>
+          <button onClick={e=>{e.stopPropagation();del(n.id);}} style={{ fontSize:13, color:C.dim }}>✕</button>
+        </div>
+      ))}
+      {notices.length===0 && <div style={{ textAlign:"center", padding:"32px", color:C.dim }}>공지가 없습니다</div>}
+    </Card>
+
+    {modal && <Modal title="공지 작성" onClose={()=>setModal(false)}>
+      <Select label="유형" value={form.type} onChange={v=>setForm(p=>({...p,type:v}))}
+        options={[{value:"공지",label:"공지"},{value:"메시지",label:"메시지"}]} />
+      <Input label="제목" value={form.title} onChange={v=>setForm(p=>({...p,title:v}))} placeholder="공지 제목" />
+      <label style={{ display:"flex", alignItems:"center", gap:8, fontSize:13, marginBottom:16, cursor:"pointer" }}>
+        <input type="checkbox" checked={form.important} onChange={e=>setForm(p=>({...p,important:e.target.checked}))} />
+        중요 공지
+      </label>
+      <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
+        <Btn outline color={C.muted} onClick={()=>setModal(false)}>취소</Btn>
+        <Btn onClick={add}>등록</Btn>
+      </div>
+    </Modal>}
+  </div>;
+}
+
+// ── 문자 발송 ──
+function SMSPanel({ store }) {
+  const { classes, students, templates, setTemplates } = store;
+  const [selected, setSelected] = useState([]);
+  const [tmplId, setTmplId] = useState(templates[0]?.id||1);
+  const [custom, setCustom] = useState("");
   const [sending, setSending] = useState(false);
   const [results, setResults] = useState([]);
-  const [sendType, setSendType] = useState("kakao"); // "kakao" | "sms"
+  const [sendType, setSendType] = useState("sms");
+  const [filterClass, setFilterClass] = useState("all");
+  const [editTmpl, setEditTmpl] = useState(null);
+  const [tmplForm, setTmplForm] = useState({});
 
-  const template = SMS_TEMPLATES.find(t => t.id === templateId);
-  const messageText = templateId === 5 ? customText : template.text;
+  const tmpl = templates.find(t=>t.id===tmplId);
+  const msgText = tmplId==="custom" ? custom : (tmpl?.text||"");
+  const filtered = students.filter(s=>filterClass==="all"||s.classId===Number(filterClass));
 
-  const toggleStudent = (id) =>
-    setSelectedStudents(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
-
-  const handleSend = async () => {
-    if (selectedStudents.length === 0) { alert("수신자를 선택해주세요."); return; }
-    if (!messageText.trim()) { alert("메시지 내용을 입력해주세요."); return; }
+  const send = async () => {
+    if(!selected.length) return alert("수신자를 선택하세요");
+    if(!msgText.trim()) return alert("메시지를 입력하세요");
     setSending(true); setResults([]);
-    const targets = STUDENTS.filter(s => selectedStudents.includes(s.id));
-    const newResults = [];
-    for (const student of targets) {
-      const text = messageText.replace(/\{이름\}/g, student.name);
-      const to = student.parentPhone.replace(/-/g, "");
-      const variables = { "#{이름}": student.name };
+    const targets = students.filter(s=>selected.includes(s.id));
+    const res2 = [];
+    for(const s of targets) {
+      const text = msgText.replace(/\{이름\}/g,s.name);
+      const to = s.parentPhone.replace(/-/g,"");
       try {
-        const res = await sendSolapiSMS({ to, text, type: sendType, variables });
-        if (res.error) newResults.push({ name: student.name, phone: student.parentPhone, status: "실패", reason: res.error });
-        else newResults.push({ name: student.name, phone: student.parentPhone, status: "성공", type: sendType });
-      } catch (e) {
-        newResults.push({ name: student.name, phone: student.parentPhone, status: "실패", reason: e.message });
-      }
+        const r = await sendSolapiSMS({to,text,type:sendType,variables:{"#{이름}":s.name}});
+        res2.push({name:s.name,phone:s.parentPhone,status:r.error?"실패":"성공",reason:r.error,type:sendType});
+      } catch(e) { res2.push({name:s.name,phone:s.parentPhone,status:"실패",reason:e.message}); }
     }
-    setResults(newResults); setSending(false);
+    setResults(res2); setSending(false);
   };
 
-  return (
-    <div className="fade-in">
-      <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
-      <Header title="메시지 발송" subtitle="키맨학원 · 카카오 알림톡 / SMS 발송" />
+  const saveTmpl = () => {
+    if(!tmplForm.label||!tmplForm.text) return alert("제목과 내용을 입력하세요");
+    if(editTmpl==="add") setTemplates(p=>[...p,{...tmplForm,id:Date.now()}]);
+    else setTemplates(p=>p.map(t=>t.id===tmplForm.id?{...tmplForm}:t));
+    setEditTmpl(null);
+  };
+  const delTmpl = (id) => { if(confirm("삭제하시겠습니까?")) setTemplates(p=>p.filter(t=>t.id!==id)); };
 
-      {/* 발송 방식 선택 */}
-      <div style={{ display: "flex", gap: 12, marginBottom: 20 }}>
-        {[
-          { id: "kakao", icon: "💬", label: "카카오 알림톡", desc: "카카오톡으로 발송 (실패 시 SMS 자동 대체)", color: "#FEE500", textColor: "#3A1F00" },
-          { id: "sms", icon: "✉", label: "SMS 문자", desc: "일반 문자메시지로 발송", color: COLORS.accentSoft, textColor: COLORS.accent },
-        ].map(t => (
-          <button key={t.id} onClick={() => setSendType(t.id)}
-            style={{ flex: 1, padding: "16px 20px", borderRadius: 12, textAlign: "left", cursor: "pointer", border: `2px solid ${sendType === t.id ? (t.id === "kakao" ? "#FEE500" : COLORS.accent) : COLORS.cardBorder}`,
-              background: sendType === t.id ? (t.id === "kakao" ? "#FFFDE7" : COLORS.accentSoft) : COLORS.card }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-              <span style={{ fontSize: 20 }}>{t.icon}</span>
-              <span style={{ fontSize: 14, fontWeight: 700, color: sendType === t.id ? t.textColor : COLORS.text }}>{t.label}</span>
-              {sendType === t.id && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 10, background: t.id === "kakao" ? "#FEE500" : COLORS.accent, color: t.id === "kakao" ? "#3A1F00" : "#fff", fontWeight: 700 }}>선택됨</span>}
-            </div>
-            <div style={{ fontSize: 11, color: COLORS.textMuted }}>{t.desc}</div>
-          </button>
-        ))}
-      </div>
+  return <div className="fade">
+    <Hdr title="메시지 발송" sub="카카오 알림톡 / SMS" />
+    <div style={{ display:"flex", gap:12, marginBottom:18 }}>
+      {[{id:"kakao",icon:"💬",label:"카카오 알림톡"},{id:"sms",icon:"✉",label:"SMS 문자"}].map(t=>(
+        <button key={t.id} onClick={()=>setSendType(t.id)} style={{ flex:1, padding:"13px 18px", borderRadius:12, textAlign:"left", cursor:"pointer", border:`2px solid ${sendType===t.id?(t.id==="kakao"?"#FEE500":C.accent):C.border}`, background:sendType===t.id?(t.id==="kakao"?"#FFFDE7":C.accentSoft):"#fff" }}>
+          <span style={{ fontSize:18 }}>{t.icon}</span>
+          <span style={{ fontSize:13, fontWeight:700, marginLeft:8, color:sendType===t.id?(t.id==="kakao"?"#7A5C00":C.accent):C.text }}>{t.label}</span>
+        </button>
+      ))}
+    </div>
 
-      {/* 카카오 알림톡 안내 */}
-      {sendType === "kakao" && (
-        <div className="fade-in" style={{ background: "#FFFDE7", border: "1px solid #FEE500", borderRadius: 12, padding: "14px 18px", marginBottom: 20 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: "#7A5C00", marginBottom: 8 }}>💬 카카오 알림톡 설정 안내</div>
-          <div style={{ fontSize: 12, color: "#9A7A00", lineHeight: 1.9 }}>
-            Vercel → Settings → Environment Variables 에 아래 항목 추가:<br />
-            <b>SOLAPI_KAKAO_PFID</b> — 솔라피에서 등록한 카카오 채널 ID (예: <code style={{background:"#FFF8DC", padding:"1px 5px", borderRadius:4}}>yellowid_xxxxx</code>)<br />
-            <b>SOLAPI_KAKAO_TEMPLATE_ID</b> — 등록한 알림톡 템플릿 ID<br />
-            <span style={{ color:"#B8860B" }}>※ 알림톡 발송 실패 시 SMS로 자동 대체됩니다.</span>
-          </div>
-        </div>
-      )}
-
-      {/* 환경변수 안내 */}
-      <div style={{ background: COLORS.card, border: `1px solid ${COLORS.green}30`, borderRadius: 14, marginBottom: 20, padding: "13px 18px", display: "flex", alignItems: "center", gap: 12 }}>
-        <span style={{ fontSize: 16, color: COLORS.green }}>🔒</span>
-        <div style={{ fontSize: 12, color: COLORS.textMuted, lineHeight: 1.7 }}>
-          API Key / Secret은 <b style={{ color: COLORS.text }}>서버 환경변수</b>에서 안전하게 관리됩니다.
-          Vercel → Settings → Environment Variables:
-          <b style={{ color: COLORS.accent }}> SOLAPI_API_KEY, SOLAPI_API_SECRET, SOLAPI_FROM_NUMBER</b>
-        </div>
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1.3fr", gap: 20 }}>
-        {/* 수신자 */}
-        <div style={{ background: COLORS.card, border: `1px solid ${COLORS.cardBorder}`, borderRadius: 14, padding: 22 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-            <div style={{ fontSize: 14, fontWeight: 700 }}>수신자 선택</div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={() => setSelectedStudents(STUDENTS.map(s => s.id))} style={{ fontSize: 11, padding: "3px 10px", borderRadius: 6, background: COLORS.accentSoft, color: COLORS.accent }}>전체</button>
-              <button onClick={() => setSelectedStudents([])} style={{ fontSize: 11, padding: "3px 10px", borderRadius: 6, background: COLORS.cardBorder, color: COLORS.textMuted }}>해제</button>
+    <div style={{ display:"grid", gridTemplateColumns:"1fr 1.3fr", gap:18 }}>
+      <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+        <Card>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+            <div style={{ fontSize:14, fontWeight:700 }}>수신자 선택</div>
+            <div style={{ display:"flex", gap:6 }}>
+              <Btn small outline onClick={()=>setSelected(filtered.map(s=>s.id))}>전체</Btn>
+              <Btn small outline color={C.muted} onClick={()=>setSelected([])}>해제</Btn>
             </div>
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {STUDENTS.map(s => (
-              <label key={s.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderRadius: 8, cursor: "pointer",
-                background: selectedStudents.includes(s.id) ? "rgba(59,126,246,0.08)" : "transparent",
-                border: selectedStudents.includes(s.id) ? `1px solid ${COLORS.accent}30` : "1px solid transparent",
-              }}>
-                <input type="checkbox" checked={selectedStudents.includes(s.id)} onChange={() => toggleStudent(s.id)} style={{ accentColor: COLORS.accent }} />
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600 }}>{s.name}</div>
-                  <div style={{ fontSize: 11, color: COLORS.textMuted }}>{s.class} · {s.parentPhone}</div>
+          <select value={filterClass} onChange={e=>{setFilterClass(e.target.value);setSelected([]);}}
+            style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:8, padding:"7px 10px", fontSize:12, marginBottom:10 }}>
+            <option value="all">전체 반</option>
+            {classes.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
+            {filtered.map(s=>(
+              <label key={s.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 10px", borderRadius:8, cursor:"pointer", background:selected.includes(s.id)?C.accentSoft:"transparent" }}>
+                <input type="checkbox" checked={selected.includes(s.id)} onChange={()=>setSelected(p=>p.includes(s.id)?p.filter(x=>x!==s.id):[...p,s.id])} style={{ accentColor:C.accent }} />
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:13, fontWeight:600 }}>{s.name}</div>
+                  <div style={{ fontSize:11, color:C.muted }}>{s.parentPhone}</div>
                 </div>
-                {s.homework === "미제출" && <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: COLORS.redSoft, color: COLORS.red }}>미제출</span>}
+                {s.homework==="미제출" && <Badge color={C.red}>미제출</Badge>}
               </label>
             ))}
           </div>
-          <div style={{ marginTop: 10, padding: "8px 12px", borderRadius: 8, background: COLORS.bg, fontSize: 12, color: COLORS.textMuted }}>
-            선택: <span style={{ color: COLORS.accent, fontWeight: 700 }}>{selectedStudents.length}</span>명
-          </div>
-        </div>
-
-        {/* 메시지 */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <div style={{ background: COLORS.card, border: `1px solid ${COLORS.cardBorder}`, borderRadius: 14, padding: 22 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>메시지 템플릿</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-              {SMS_TEMPLATES.map(t => (
-                <label key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderRadius: 8, cursor: "pointer",
-                  background: templateId === t.id ? COLORS.accentSoft : COLORS.bg,
-                  border: templateId === t.id ? `1px solid ${COLORS.accent}40` : `1px solid ${COLORS.cardBorder}`,
-                }}>
-                  <input type="radio" checked={templateId === t.id} onChange={() => setTemplateId(t.id)} style={{ accentColor: COLORS.accent }} />
-                  <span style={{ fontSize: 13, color: templateId === t.id ? COLORS.text : COLORS.textMuted }}>{t.label}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-
-          <div style={{ background: COLORS.card, border: `1px solid ${COLORS.cardBorder}`, borderRadius: 14, padding: 22 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>메시지 내용</div>
-            {templateId === 5 ? (
-              <textarea value={customText} onChange={e => setCustomText(e.target.value)} rows={4}
-                placeholder={"메시지를 직접 입력하세요\n{이름} 입력 시 학생 이름으로 자동 치환됩니다."}
-                style={{ width: "100%", background: COLORS.bg, border: `1px solid ${COLORS.cardBorder}`, borderRadius: 8, padding: "11px 13px", color: COLORS.text, fontSize: 13, outline: "none", resize: "vertical" }} />
-            ) : (
-              <div style={{ background: COLORS.bg, borderRadius: 8, padding: "11px 14px", fontSize: 13, color: COLORS.textMuted, lineHeight: 1.7 }}>{messageText}</div>
-            )}
-            <div style={{ marginTop: 8, fontSize: 11, color: COLORS.textDim }}>
-              💬 <b style={{ color: COLORS.textMuted }}>{"{이름}"}</b> 입력 시 학생 이름으로 자동 치환 · SMS 90자 / LMS 2000자
-            </div>
-            <button className="btn-primary" onClick={handleSend} disabled={sending}
-              style={{ width: "100%", marginTop: 16, padding: "13px", borderRadius: 10,
-                background: sending ? COLORS.cardBorder : sendType === "kakao" ? "#FEE500" : COLORS.accent,
-                color: sending ? COLORS.textMuted : sendType === "kakao" ? "#3A1F00" : "#fff",
-                fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-              {sending
-                ? <><span style={{ animation: "spin 1s linear infinite", display: "inline-block" }}>⟳</span> 발송 중...</>
-                : sendType === "kakao"
-                  ? <>💬 {selectedStudents.length}명에게 카카오 알림톡 발송</>
-                  : <>✉ {selectedStudents.length}명에게 SMS 발송</>}
-            </button>
-          </div>
-        </div>
+          <div style={{ marginTop:10, fontSize:12, color:C.muted }}>선택: <b style={{color:C.accent}}>{selected.length}</b>명</div>
+        </Card>
       </div>
 
-      {/* 결과 */}
-      {results.length > 0 && (
-        <div className="fade-in" style={{ background: COLORS.card, border: `1px solid ${COLORS.cardBorder}`, borderRadius: 14, padding: 22, marginTop: 20 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>발송 결과</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 14 }}>
-            {[
-              { label: "전체", value: results.length, color: COLORS.accent },
-              { label: "성공", value: results.filter(r => r.status === "성공").length, color: COLORS.green },
-              { label: "실패", value: results.filter(r => r.status === "실패").length, color: COLORS.red },
-            ].map((s, i) => (
-              <div key={i} style={{ background: COLORS.bg, borderRadius: 10, padding: "12px", textAlign: "center" }}>
-                <div style={{ fontSize: 24, fontWeight: 700, color: s.color, fontFamily: "'Space Grotesk', sans-serif" }}>{s.value}</div>
-                <div style={{ fontSize: 11, color: COLORS.textMuted, marginTop: 2 }}>{s.label}</div>
+      <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+        <Card>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+            <div style={{ fontSize:14, fontWeight:700 }}>메시지 템플릿</div>
+            <Btn small onClick={()=>{setTmplForm({label:"",text:""});setEditTmpl("add");}}>+ 추가</Btn>
+          </div>
+          <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+            {templates.map(t=>(
+              <div key={t.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"9px 12px", borderRadius:8, cursor:"pointer", background:tmplId===t.id?C.accentSoft:"transparent", border:`1px solid ${tmplId===t.id?C.accent:C.border}` }}>
+                <input type="radio" checked={tmplId===t.id} onChange={()=>setTmplId(t.id)} style={{accentColor:C.accent}} />
+                <span style={{ flex:1, fontSize:13, color:tmplId===t.id?C.accent:C.text }}>{t.label}</span>
+                <button onClick={()=>{setTmplForm({...t});setEditTmpl(t);}} style={{ fontSize:11, color:C.muted }}>✏</button>
+                <button onClick={()=>delTmpl(t.id)} style={{ fontSize:11, color:C.red }}>✕</button>
               </div>
             ))}
+            <div style={{ display:"flex", alignItems:"center", gap:8, padding:"9px 12px", borderRadius:8, cursor:"pointer", background:tmplId==="custom"?C.accentSoft:"transparent", border:`1px solid ${tmplId==="custom"?C.accent:C.border}` }}>
+              <input type="radio" checked={tmplId==="custom"} onChange={()=>setTmplId("custom")} style={{accentColor:C.accent}} />
+              <span style={{ fontSize:13, color:tmplId==="custom"?C.accent:C.text }}>직접 입력</span>
+            </div>
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {results.map((r, i) => (
-              <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 8,
-                background: r.status === "성공" ? COLORS.greenSoft : COLORS.redSoft,
-                border: `1px solid ${r.status === "성공" ? COLORS.green : COLORS.red}30`,
-              }}>
-                <span style={{ fontSize: 14, color: r.status === "성공" ? COLORS.green : COLORS.red }}>{r.status === "성공" ? "✓" : "✗"}</span>
-                <div style={{ flex: 1 }}>
-                  <span style={{ fontSize: 13, fontWeight: 600 }}>{r.name}</span>
-                  <span style={{ fontSize: 12, color: COLORS.textMuted, marginLeft: 8 }}>{r.phone}</span>
-                  {r.type && <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, marginLeft: 6, background: r.type === "kakao" ? "#FEE500" : COLORS.accentSoft, color: r.type === "kakao" ? "#7A5C00" : COLORS.accent, fontWeight: 700 }}>{r.type === "kakao" ? "알림톡" : "SMS"}</span>}
-                  {r.reason && <span style={{ fontSize: 11, color: COLORS.red, marginLeft: 8 }}>({r.reason})</span>}
-                </div>
-                <span style={{ fontSize: 12, color: r.status === "성공" ? COLORS.green : COLORS.red, fontWeight: 600 }}>{r.status}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+        </Card>
+        <Card>
+          <div style={{ fontSize:14, fontWeight:700, marginBottom:10 }}>메시지 내용</div>
+          {tmplId==="custom"
+            ? <textarea value={custom} onChange={e=>setCustom(e.target.value)} rows={4} placeholder={"내용 입력\n{이름} → 학생 이름 자동 치환"}
+                style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px", fontSize:13, resize:"vertical" }} />
+            : <div style={{ background:C.bg, borderRadius:8, padding:"12px", fontSize:13, color:C.muted, lineHeight:1.7 }}>{msgText}</div>
+          }
+          <div style={{ fontSize:11, color:C.dim, marginTop:6 }}>💬 {"{이름}"} → 학생 이름 자동 치환</div>
+          <button className="bt" onClick={send} disabled={sending} style={{ width:"100%", marginTop:14, padding:"13px", borderRadius:10, fontSize:14, fontWeight:700, display:"flex", alignItems:"center", justifyContent:"center", gap:8, border:"none", cursor:"pointer", background:sending?C.border:sendType==="kakao"?"#FEE500":C.accent, color:sending?C.muted:sendType==="kakao"?"#3A1F00":"#fff" }}>
+            {sending?<><span className="spin" style={{display:"inline-block"}}>⟳</span> 발송 중...</>:sendType==="kakao"?`💬 ${selected.length}명 알림톡 발송`:`✉ ${selected.length}명 SMS 발송`}
+          </button>
+        </Card>
+      </div>
     </div>
-  );
+
+    {results.length>0 && <Card style={{ marginTop:18 }}>
+      <div style={{ fontSize:14, fontWeight:700, marginBottom:12 }}>발송 결과</div>
+      <div style={{ display:"flex", gap:12, marginBottom:12 }}>
+        {[["전체",results.length,C.accent],["성공",results.filter(r=>r.status==="성공").length,C.green],["실패",results.filter(r=>r.status==="실패").length,C.red]].map(([l,v,col])=>(
+          <div key={l} style={{ flex:1, background:C.bg, borderRadius:10, padding:"12px", textAlign:"center" }}>
+            <div style={{ fontSize:22, fontWeight:700, color:col }}>{v}</div>
+            <div style={{ fontSize:11, color:C.muted }}>{l}</div>
+          </div>
+        ))}
+      </div>
+      {results.map((r,i)=>(
+        <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 12px", borderRadius:8, marginBottom:5, background:r.status==="성공"?C.greenSoft:C.redSoft }}>
+          <span style={{ color:r.status==="성공"?C.green:C.red }}>{r.status==="성공"?"✓":"✗"}</span>
+          <span style={{ fontWeight:600, fontSize:13 }}>{r.name}</span>
+          <span style={{ fontSize:12, color:C.muted }}>{r.phone}</span>
+          <Badge color={r.type==="kakao"?"#D97706":C.accent}>{r.type==="kakao"?"알림톡":"SMS"}</Badge>
+          {r.reason && <span style={{ fontSize:11, color:C.red }}>({r.reason})</span>}
+          <span style={{ marginLeft:"auto", fontSize:12, fontWeight:600, color:r.status==="성공"?C.green:C.red }}>{r.status}</span>
+        </div>
+      ))}
+    </Card>}
+
+    {editTmpl && <Modal title={editTmpl==="add"?"템플릿 추가":"템플릿 수정"} onClose={()=>setEditTmpl(null)}>
+      <Input label="템플릿 이름" value={tmplForm.label||""} onChange={v=>setTmplForm(p=>({...p,label:v}))} placeholder="예: 결석 안내" />
+      <div style={{ marginBottom:14 }}>
+        <label style={{ fontSize:11, color:C.muted, display:"block", marginBottom:5 }}>내용</label>
+        <textarea value={tmplForm.text||""} onChange={e=>setTmplForm(p=>({...p,text:e.target.value}))} rows={4}
+          style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px", fontSize:13, resize:"vertical" }} />
+        <div style={{ fontSize:11, color:C.dim, marginTop:4 }}>{"{이름}"} 입력 시 학생 이름으로 자동 치환</div>
+      </div>
+      <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
+        <Btn outline color={C.muted} onClick={()=>setEditTmpl(null)}>취소</Btn>
+        <Btn onClick={saveTmpl}>저장</Btn>
+      </div>
+    </Modal>}
+  </div>;
 }
 
-/* ─── Report Panel ─── */
-function ReportPanel() {
-  const [selectedClass, setSelectedClass] = useState("");
-  const [selectedDate, setSelectedDate] = useState("2026-05-31");
+// ── 수업 보고서 ──
+function ReportPanel({ store }) {
+  const { classes, students } = store;
+  const [selClass, setSelClass] = useState("");
+  const [date, setDate] = useState(new Date().toISOString().slice(0,10));
   const [topic, setTopic] = useState("");
   const [attendance, setAttendance] = useState({});
   const [memo, setMemo] = useState("");
   const [generating, setGenerating] = useState(false);
   const [report, setReport] = useState(null);
-  const [savedReports, setSavedReports] = useState([
-    { id: 1, class: "수학 심화반", date: "2026-05-28", topic: "이차방정식 풀이", summary: "학생들의 전반적인 이해도가 높았으며, 심화 문제 풀이에서 탁월한 성과를 보였습니다." },
-    { id: 2, class: "영어 회화반", date: "2026-05-27", topic: "비즈니스 영어 표현", summary: "대화 연습 활동에서 학생들의 자신감이 크게 향상되었습니다." },
-  ]);
-  const [activeTab, setActiveTab] = useState("create");
-  const [copyDone, setCopyDone] = useState(false);
+  const [saved, setSaved] = useStore("km_reports",[]);
+  const [tab, setTab] = useState("create");
+  const [copied, setCopied] = useState(false);
 
-  const classStudents = STUDENTS.filter(s => s.class === selectedClass);
+  const classStudents = students.filter(s=>s.classId===Number(selClass));
+  const absentCount = classStudents.filter(s=>attendance[s.id]==="결석").length;
+  const attendCount = classStudents.length - absentCount;
 
-  const toggleAttendance = (id) =>
-    setAttendance(prev => ({ ...prev, [id]: prev[id] === "결석" ? "출석" : "결석" }));
-
-  const attendCount = classStudents.filter(s => attendance[s.id] !== "결석").length;
-  const absentCount = classStudents.length - attendCount;
-
-  const handleGenerate = async () => {
-    if (!selectedClass) { alert("반을 선택해주세요."); return; }
-    if (!topic.trim()) { alert("수업 주제를 입력해주세요."); return; }
-    setGenerating(true);
-    setReport(null);
-
-    const absentNames = classStudents.filter(s => attendance[s.id] === "결석").map(s => s.name);
-    const lowScoreStudents = classStudents.filter(s => s.avgScore < 75).map(s => s.name);
-    const classInfo = CLASSES.find(c => c.name === selectedClass);
-
-    const prompt = `당신은 학원 선생님을 도와 수업 보고서를 작성하는 전문 AI입니다.
-다음 정보를 바탕으로 한국어로 전문적인 수업 보고서를 작성해주세요.
-
-[수업 정보]
-- 반 이름: ${selectedClass}
-- 담당 교사: ${classInfo?.teacher || ""}
-- 수업 날짜: ${selectedDate}
-- 수업 주제: ${topic}
-- 총 학생 수: ${classStudents.length}명
-- 출석: ${attendCount}명, 결석: ${absentCount}명
-${absentNames.length > 0 ? `- 결석 학생: ${absentNames.join(", ")}` : ""}
-${lowScoreStudents.length > 0 ? `- 성적 주의 학생(75점 미만): ${lowScoreStudents.join(", ")}` : ""}
-${memo ? `- 교사 메모: ${memo}` : ""}
-
-다음 JSON 형식으로만 응답하세요 (다른 텍스트 없이):
-{
-  "title": "보고서 제목",
-  "summary": "수업 요약 (2~3문장)",
-  "achievements": ["주요 성과 1", "주요 성과 2", "주요 성과 3"],
-  "concerns": ["주의사항 또는 개선점 1", "주의사항 또는 개선점 2"],
-  "nextPlan": "다음 수업 계획 (1~2문장)",
-  "parentMessage": "학부모께 전달할 메시지 (2문장, SMS 발송 가능한 형태)"
-}`;
-
+  const generate = async () => {
+    if(!selClass) return alert("반을 선택하세요");
+    if(!topic.trim()) return alert("수업 주제를 입력하세요");
+    setGenerating(true); setReport(null);
+    const cls = classes.find(c=>c.id===Number(selClass));
+    const absentNames = classStudents.filter(s=>attendance[s.id]==="결석").map(s=>s.name);
+    const lowScore = classStudents.filter(s=>s.avgScore<75).map(s=>s.name);
+    const prompt = `당신은 학원 선생님을 돕는 AI입니다. 다음 정보로 전문적인 수업 보고서를 작성하세요.
+반: ${cls?.name}, 교사: ${cls?.teacher}, 날짜: ${date}, 주제: ${topic}
+출석: ${attendCount}명, 결석: ${absentCount}명${absentNames.length?", 결석학생: "+absentNames.join(","):""}
+${lowScore.length?"주의학생(75점미만): "+lowScore.join(","):""}
+${memo?"교사메모: "+memo:""}
+JSON으로만 응답(다른 텍스트 없이):
+{"title":"제목","summary":"요약(2문장)","achievements":["성과1","성과2","성과3"],"concerns":["개선점1","개선점2"],"nextPlan":"다음계획(1문장)","parentMessage":"학부모메시지(2문장)"}`;
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1000,
-          messages: [{ role: "user", content: prompt }],
-        }),
-      });
+      const res = await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,messages:[{role:"user",content:prompt}]})});
       const data = await res.json();
-      const raw = data.content?.map(i => i.text || "").join("") || "";
-      const clean = raw.replace(/```json|```/g, "").trim();
-      const parsed = JSON.parse(clean);
-      const newReport = {
-        id: Date.now(),
-        class: selectedClass,
-        date: selectedDate,
-        topic,
-        attendCount,
-        absentCount,
-        absentNames,
-        ...parsed,
-      };
-      setReport(newReport);
-    } catch (e) {
-      alert("보고서 생성 중 오류가 발생했습니다: " + e.message);
-    }
+      const raw = data.content?.map(i=>i.text||"").join("")||"";
+      const parsed = JSON.parse(raw.replace(/```json|```/g,"").trim());
+      setReport({id:Date.now(),class:cls?.name,date,topic,attendCount,absentCount,...parsed});
+    } catch(e) { alert("생성 오류: "+e.message); }
     setGenerating(false);
   };
 
-  const saveReport = () => {
-    if (!report) return;
-    setSavedReports(prev => [report, ...prev]);
-    alert("보고서가 저장되었습니다.");
+  const save = () => { if(report){setSaved(p=>[report,...p]);alert("저장됐습니다!");} };
+  const copy = () => {
+    if(!report) return;
+    navigator.clipboard.writeText(`[${report.class}] ${report.title}\n날짜: ${report.date}\n\n요약\n${report.summary}\n\n성과\n${report.achievements.join("\n")}\n\n개선점\n${report.concerns.join("\n")}\n\n다음 계획\n${report.nextPlan}\n\n학부모 메시지\n${report.parentMessage}`);
+    setCopied(true); setTimeout(()=>setCopied(false),2000);
   };
 
-  const copyReport = () => {
-    if (!report) return;
-    const text = `[수업 보고서] ${report.title}
-날짜: ${report.date} | 반: ${report.class} | 출석: ${report.attendCount}명
-주제: ${report.topic}
+  return <div className="fade">
+    <Hdr title="수업 보고서" sub="AI 자동 작성" />
+    <div style={{ display:"flex", gap:4, marginBottom:18, background:C.card, borderRadius:10, padding:4, width:"fit-content", border:`1px solid ${C.border}` }}>
+      {[{id:"create",label:"✦ 보고서 작성"},{id:"history",label:"◧ 저장된 보고서"}].map(t=>(
+        <button key={t.id} onClick={()=>setTab(t.id)} style={{ padding:"7px 18px", borderRadius:7, fontSize:13, fontWeight:600, background:tab===t.id?C.accent:"transparent", color:tab===t.id?"#fff":C.muted, border:"none", cursor:"pointer" }}>{t.label}</button>
+      ))}
+    </div>
 
-📋 수업 요약
-${report.summary}
-
-✅ 주요 성과
-${report.achievements.map((a, i) => `${i + 1}. ${a}`).join("\n")}
-
-⚠️ 주의사항
-${report.concerns.map((c, i) => `${i + 1}. ${c}`).join("\n")}
-
-📅 다음 수업 계획
-${report.nextPlan}
-
-💬 학부모 전달 메시지
-${report.parentMessage}`;
-    navigator.clipboard.writeText(text).then(() => {
-      setCopyDone(true);
-      setTimeout(() => setCopyDone(false), 2000);
-    });
-  };
-
-  return (
-    <div className="fade-in">
-      <Header title="수업 보고서" subtitle="키맨학원 · AI 수업 보고서 자동 작성" />
-
-      {/* Tabs */}
-      <div style={{ display: "flex", gap: 4, marginBottom: 20, background: COLORS.card, borderRadius: 10, padding: 4, width: "fit-content", border: `1px solid ${COLORS.cardBorder}` }}>
-        {[{ id: "create", label: "✦ 보고서 작성" }, { id: "history", label: "◧ 저장된 보고서" }].map(tab => (
-          <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-            style={{ padding: "8px 20px", borderRadius: 7, fontSize: 13, fontWeight: 600,
-              background: activeTab === tab.id ? COLORS.accent : "transparent",
-              color: activeTab === tab.id ? "#fff" : COLORS.textMuted }}>
-            {tab.label}
-          </button>
-        ))}
+    {tab==="create" && <div style={{ display:"grid", gridTemplateColumns:"1fr 1.4fr", gap:18 }}>
+      <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+        <Card>
+          <div style={{ fontSize:14, fontWeight:700, marginBottom:16 }}>수업 정보</div>
+          <Select label="반 선택" value={selClass} onChange={v=>{setSelClass(v);setAttendance({});}}
+            options={[{value:"",label:"반을 선택하세요"},...classes.map(c=>({value:c.id,label:c.name+" ("+c.teacher+")"}))]} />
+          <Input label="수업 날짜" type="date" value={date} onChange={setDate} />
+          <Input label="수업 주제" value={topic} onChange={setTopic} placeholder="예: 이차방정식 풀이" />
+          <div>
+            <label style={{ fontSize:11, color:C.muted, display:"block", marginBottom:5 }}>교사 메모 (선택)</label>
+            <textarea value={memo} onChange={e=>setMemo(e.target.value)} rows={3} placeholder="특이사항, 학생 반응 등"
+              style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", fontSize:13, resize:"vertical" }} />
+          </div>
+        </Card>
+        {selClass && <Card>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+            <div style={{ fontSize:14, fontWeight:700 }}>출석 체크</div>
+            <span style={{ fontSize:12, color:C.muted }}>출석 <b style={{color:C.green}}>{attendCount}</b> / 결석 <b style={{color:C.red}}>{absentCount}</b></span>
+          </div>
+          {classStudents.map(s=>(
+            <div key={s.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"8px 10px", borderRadius:8, marginBottom:5, background:attendance[s.id]==="결석"?C.redSoft:C.bg }}>
+              <span style={{ fontSize:13, fontWeight:600, color:attendance[s.id]==="결석"?C.red:C.text }}>{s.name}</span>
+              <button onClick={()=>setAttendance(p=>({...p,[s.id]:p[s.id]==="결석"?"출석":"결석"}))}
+                style={{ fontSize:11, padding:"4px 12px", borderRadius:6, fontWeight:600, border:"none", cursor:"pointer", background:attendance[s.id]==="결석"?C.red:C.greenSoft, color:attendance[s.id]==="결석"?"#fff":C.green }}>
+                {attendance[s.id]==="결석"?"결석":"출석"}
+              </button>
+            </div>
+          ))}
+        </Card>}
+        <button className="bt" onClick={generate} disabled={generating} style={{ padding:"14px", borderRadius:12, fontSize:14, fontWeight:700, border:"none", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:8, background:generating?C.border:"linear-gradient(135deg,#3B7EF6,#6366F1)", color:generating?C.muted:"#fff", boxShadow:generating?"none":"0 4px 16px rgba(59,126,246,0.3)" }}>
+          {generating?<><span className="spin" style={{display:"inline-block"}}>⟳</span> AI 작성 중...</>:"✦ AI 보고서 자동 생성"}
+        </button>
       </div>
 
-      {activeTab === "create" && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: 20 }}>
-          {/* 입력 폼 */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <div style={{ background: COLORS.card, border: `1px solid ${COLORS.cardBorder}`, borderRadius: 14, padding: 22 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 16 }}>수업 정보 입력</div>
+      <div>
+        {!report&&!generating && <Card style={{ minHeight:400, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:14, border:`1px dashed ${C.border}` }}>
+          <div style={{ fontSize:36, opacity:0.2 }}>◧</div>
+          <div style={{ fontSize:13, color:C.dim, textAlign:"center", lineHeight:1.8 }}>수업 정보 입력 후<br/><b style={{color:C.muted}}>AI 보고서 자동 생성</b> 버튼을 누르세요</div>
+        </Card>}
+        {generating && <Card style={{ minHeight:400, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:16 }}>
+          <div style={{ position:"relative", width:50, height:50 }}>
+            <div className="spin" style={{ position:"absolute", inset:0, border:`3px solid ${C.accent}`, borderTopColor:"transparent", borderRadius:"50%" }} />
+          </div>
+          <div style={{ fontSize:13, color:C.muted }}>AI가 보고서를 작성하고 있습니다...</div>
+        </Card>}
+        {report&&!generating && <Card className="fade" style={{ border:`1px solid ${C.accent}30` }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16 }}>
+            <div>
+              <div style={{ fontSize:16, fontWeight:800 }}>{report.title}</div>
+              <div style={{ fontSize:11, color:C.muted, marginTop:3 }}>{report.date} · {report.class} · 출석 {report.attendCount}명</div>
+            </div>
+            <div style={{ display:"flex", gap:8 }}>
+              <Btn small outline onClick={copy}>{copied?"✓ 복사됨":"복사"}</Btn>
+              <Btn small onClick={save}>저장</Btn>
+            </div>
+          </div>
+          {[
+            {icon:"📋",title:"수업 요약",color:C.accent,content:<p style={{fontSize:13,color:C.muted,lineHeight:1.8}}>{report.summary}</p>},
+            {icon:"✅",title:"주요 성과",color:C.green,content:report.achievements?.map((a,i)=><div key={i} style={{fontSize:13,color:C.muted,marginBottom:5}}>• {a}</div>)},
+            {icon:"⚠️",title:"개선점",color:C.yellow,content:report.concerns?.map((c,i)=><div key={i} style={{fontSize:13,color:C.muted,marginBottom:5}}>• {c}</div>)},
+            {icon:"📅",title:"다음 수업",color:"#A78BFA",content:<p style={{fontSize:13,color:C.muted,lineHeight:1.8}}>{report.nextPlan}</p>},
+            {icon:"💬",title:"학부모 메시지",color:C.red,content:<div style={{background:C.bg,borderRadius:8,padding:"11px 13px",fontSize:13,lineHeight:1.8}}>{report.parentMessage}</div>},
+          ].map(s=>(
+            <div key={s.title} style={{ background:C.bg, borderRadius:10, padding:"13px 15px", marginBottom:10, borderLeft:`3px solid ${s.color}` }}>
+              <div style={{ fontSize:12, fontWeight:700, color:s.color, marginBottom:8 }}>{s.icon} {s.title}</div>
+              {s.content}
+            </div>
+          ))}
+        </Card>}
+      </div>
+    </div>}
 
-              <div style={{ marginBottom: 14 }}>
-                <label style={{ fontSize: 11, color: COLORS.textMuted, display: "block", marginBottom: 6 }}>반 선택</label>
-                <select value={selectedClass} onChange={e => { setSelectedClass(e.target.value); setAttendance({}); }}
-                  style={{ width: "100%", background: COLORS.bg, border: `1px solid ${COLORS.cardBorder}`, borderRadius: 8, padding: "9px 12px", color: selectedClass ? COLORS.text : COLORS.textDim, fontSize: 13, outline: "none" }}>
-                  <option value="">반을 선택하세요</option>
-                  {CLASSES.map(c => <option key={c.id} value={c.name}>{c.name} ({c.teacher} 선생님)</option>)}
-                </select>
-              </div>
-
-              <div style={{ marginBottom: 14 }}>
-                <label style={{ fontSize: 11, color: COLORS.textMuted, display: "block", marginBottom: 6 }}>수업 날짜</label>
-                <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)}
-                  style={{ width: "100%", background: COLORS.bg, border: `1px solid ${COLORS.cardBorder}`, borderRadius: 8, padding: "9px 12px", color: COLORS.text, fontSize: 13, outline: "none", colorScheme: "light" }} />
-              </div>
-
-              <div style={{ marginBottom: 14 }}>
-                <label style={{ fontSize: 11, color: COLORS.textMuted, display: "block", marginBottom: 6 }}>수업 주제 / 내용</label>
-                <input value={topic} onChange={e => setTopic(e.target.value)} placeholder="예: 이차방정식 풀이, 비즈니스 영어 표현"
-                  style={{ width: "100%", background: COLORS.bg, border: `1px solid ${COLORS.cardBorder}`, borderRadius: 8, padding: "9px 12px", color: COLORS.text, fontSize: 13, outline: "none" }} />
-              </div>
-
+    {tab==="history" && <div className="fade">
+      {saved.length===0
+        ? <Card style={{ textAlign:"center", padding:"48px", color:C.dim }}>저장된 보고서가 없습니다</Card>
+        : saved.map(r=>(
+          <Card key={r.id} style={{ marginBottom:12 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8 }}>
               <div>
-                <label style={{ fontSize: 11, color: COLORS.textMuted, display: "block", marginBottom: 6 }}>교사 메모 (선택)</label>
-                <textarea value={memo} onChange={e => setMemo(e.target.value)} rows={3}
-                  placeholder="특이사항, 학생 반응, 수업 분위기 등을 자유롭게 입력하세요"
-                  style={{ width: "100%", background: COLORS.bg, border: `1px solid ${COLORS.cardBorder}`, borderRadius: 8, padding: "9px 12px", color: COLORS.text, fontSize: 13, outline: "none", resize: "vertical" }} />
+                <div style={{ fontSize:15, fontWeight:700 }}>{r.title||r.class+" 수업 보고서"}</div>
+                <div style={{ fontSize:12, color:C.muted, marginTop:3 }}>{r.date} · {r.class} · {r.topic}</div>
               </div>
+              <Badge>{r.attendCount}명 출석</Badge>
             </div>
-
-            {/* 출석 */}
-            {selectedClass && (
-              <div className="fade-in" style={{ background: COLORS.card, border: `1px solid ${COLORS.cardBorder}`, borderRadius: 14, padding: 22 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700 }}>출석 체크</div>
-                  <div style={{ fontSize: 12, color: COLORS.textMuted }}>
-                    출석 <span style={{ color: COLORS.green, fontWeight: 700 }}>{attendCount}</span> / 결석 <span style={{ color: COLORS.red, fontWeight: 700 }}>{absentCount}</span>
-                  </div>
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {classStudents.map(s => {
-                    const absent = attendance[s.id] === "결석";
-                    return (
-                      <div key={s.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 12px", borderRadius: 8,
-                        background: absent ? COLORS.redSoft : COLORS.bg,
-                        border: `1px solid ${absent ? COLORS.red + "30" : COLORS.cardBorder}`,
-                      }}>
-                        <div>
-                          <span style={{ fontSize: 13, fontWeight: 600, color: absent ? COLORS.red : COLORS.text }}>{s.name}</span>
-                          <span style={{ fontSize: 11, color: COLORS.textMuted, marginLeft: 8 }}>평균 {s.avgScore}점</span>
-                        </div>
-                        <button onClick={() => toggleAttendance(s.id)}
-                          style={{ fontSize: 11, padding: "4px 12px", borderRadius: 6, fontWeight: 600,
-                            background: absent ? COLORS.red : COLORS.greenSoft,
-                            color: absent ? "#fff" : COLORS.green }}>
-                          {absent ? "결석" : "출석"}
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            <button className="btn-primary" onClick={handleGenerate} disabled={generating}
-              style={{ width: "100%", padding: "14px", borderRadius: 12, fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-                background: generating ? COLORS.cardBorder : "linear-gradient(135deg, #4F8EF7, #7C4DFF)",
-                color: generating ? COLORS.textMuted : "#fff",
-                boxShadow: generating ? "none" : "0 4px 16px rgba(59,126,246,0.3)" }}>
-              {generating
-                ? <><span style={{ animation: "spin 1s linear infinite", display: "inline-block" }}>⟳</span> AI가 보고서 작성 중...</>
-                : <>✦ AI 보고서 자동 생성</>}
-            </button>
-          </div>
-
-          {/* 결과 */}
-          <div>
-            {!report && !generating && (
-              <div style={{ background: COLORS.card, border: `1px dashed ${COLORS.cardBorder}`, borderRadius: 14, padding: 48, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, minHeight: 400 }}>
-                <div style={{ fontSize: 40, opacity: 0.3 }}>◧</div>
-                <div style={{ fontSize: 14, color: COLORS.textDim, textAlign: "center", lineHeight: 1.7 }}>
-                  왼쪽에서 수업 정보를 입력하고<br /><b style={{ color: COLORS.textMuted }}>AI 보고서 자동 생성</b> 버튼을 누르세요
-                </div>
-                <div style={{ fontSize: 11, color: COLORS.textDim, textAlign: "center", lineHeight: 1.8, padding: "12px 20px", background: COLORS.bg, borderRadius: 10 }}>
-                  ✦ 수업 요약 · 주요 성과 · 주의사항<br />
-                  ✦ 다음 수업 계획 · 학부모 전달 메시지<br />
-                  자동 생성
-                </div>
-              </div>
-            )}
-
-            {generating && (
-              <div style={{ background: COLORS.card, border: `1px solid ${COLORS.cardBorder}`, borderRadius: 14, padding: 48, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20, minHeight: 400 }}>
-                <div style={{ position: "relative", width: 60, height: 60 }}>
-                  <div style={{ position: "absolute", inset: 0, border: `3px solid ${COLORS.accent}`, borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
-                  <div style={{ position: "absolute", inset: 8, border: `2px solid #7C4DFF`, borderBottomColor: "transparent", borderRadius: "50%", animation: "spin 1.2s linear infinite reverse" }} />
-                </div>
-                <div style={{ fontSize: 14, color: COLORS.textMuted, textAlign: "center", lineHeight: 1.8 }}>
-                  AI가 수업 내용을 분석하여<br />보고서를 작성하고 있습니다...
-                </div>
-              </div>
-            )}
-
-            {report && !generating && (
-              <div className="fade-in" style={{ background: COLORS.card, border: `1px solid ${COLORS.accent}40`, borderRadius: 14, padding: 24, display: "flex", flexDirection: "column", gap: 18 }}>
-                {/* 헤더 */}
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                  <div>
-                    <div style={{ fontSize: 16, fontWeight: 800, color: COLORS.text, lineHeight: 1.3 }}>{report.title}</div>
-                    <div style={{ fontSize: 12, color: COLORS.textMuted, marginTop: 4 }}>
-                      {report.date} · {report.class} · 출석 {report.attendCount}명
-                      {report.absentCount > 0 && <span style={{ color: COLORS.red }}> / 결석 {report.absentCount}명</span>}
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <button onClick={copyReport} className="btn-primary"
-                      style={{ fontSize: 11, padding: "5px 12px", borderRadius: 7, background: copyDone ? COLORS.greenSoft : COLORS.cardBorder, color: copyDone ? COLORS.green : COLORS.textMuted, fontWeight: 600 }}>
-                      {copyDone ? "✓ 복사됨" : "복사"}
-                    </button>
-                    <button onClick={saveReport} className="btn-primary"
-                      style={{ fontSize: 11, padding: "5px 12px", borderRadius: 7, background: COLORS.accentSoft, color: COLORS.accent, fontWeight: 600 }}>
-                      저장
-                    </button>
-                  </div>
-                </div>
-
-                {/* 수업 요약 */}
-                <ReportSection icon="📋" title="수업 요약" color={COLORS.accent}>
-                  <p style={{ fontSize: 13, color: COLORS.textMuted, lineHeight: 1.8 }}>{report.summary}</p>
-                </ReportSection>
-
-                {/* 주요 성과 */}
-                <ReportSection icon="✅" title="주요 성과" color={COLORS.green}>
-                  {report.achievements.map((a, i) => (
-                    <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start", marginBottom: 6 }}>
-                      <span style={{ color: COLORS.green, fontWeight: 700, fontSize: 13, flexShrink: 0 }}>{i + 1}</span>
-                      <span style={{ fontSize: 13, color: COLORS.textMuted, lineHeight: 1.7 }}>{a}</span>
-                    </div>
-                  ))}
-                </ReportSection>
-
-                {/* 주의사항 */}
-                <ReportSection icon="⚠️" title="주의사항 / 개선점" color={COLORS.yellow}>
-                  {report.concerns.map((c, i) => (
-                    <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start", marginBottom: 6 }}>
-                      <span style={{ color: COLORS.yellow, fontWeight: 700, fontSize: 13, flexShrink: 0 }}>•</span>
-                      <span style={{ fontSize: 13, color: COLORS.textMuted, lineHeight: 1.7 }}>{c}</span>
-                    </div>
-                  ))}
-                </ReportSection>
-
-                {/* 다음 수업 */}
-                <ReportSection icon="📅" title="다음 수업 계획" color="#A78BFA">
-                  <p style={{ fontSize: 13, color: COLORS.textMuted, lineHeight: 1.8 }}>{report.nextPlan}</p>
-                </ReportSection>
-
-                {/* 학부모 메시지 */}
-                <ReportSection icon="💬" title="학부모 전달 메시지" color={COLORS.red}>
-                  <div style={{ background: COLORS.bg, borderRadius: 8, padding: "12px 14px", fontSize: 13, color: COLORS.text, lineHeight: 1.8, border: `1px solid ${COLORS.cardBorder}` }}>
-                    {report.parentMessage}
-                  </div>
-                  <div style={{ fontSize: 11, color: COLORS.textDim, marginTop: 6 }}>💡 문자 발송 메뉴에서 학부모에게 바로 발송할 수 있습니다</div>
-                </ReportSection>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {activeTab === "history" && (
-        <div className="fade-in">
-          {savedReports.length === 0 ? (
-            <div style={{ background: COLORS.card, border: `1px dashed ${COLORS.cardBorder}`, borderRadius: 14, padding: 48, textAlign: "center", color: COLORS.textDim }}>
-              저장된 보고서가 없습니다
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              {savedReports.map(r => (
-                <div key={r.id} className="card-hover" style={{ background: COLORS.card, border: `1px solid ${COLORS.cardBorder}`, borderRadius: 14, padding: "20px 24px" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
-                    <div>
-                      <div style={{ fontSize: 15, fontWeight: 700 }}>{r.title || `${r.class} 수업 보고서`}</div>
-                      <div style={{ fontSize: 12, color: COLORS.textMuted, marginTop: 3 }}>
-                        {r.date} · {r.class} · {r.topic}
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 5, background: COLORS.accentSoft, color: COLORS.accent }}>
-                        출석 {r.attendCount ?? "—"}명
-                      </span>
-                    </div>
-                  </div>
-                  <p style={{ fontSize: 13, color: COLORS.textMuted, lineHeight: 1.7 }}>{r.summary}</p>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-      <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
-    </div>
-  );
+            <p style={{ fontSize:13, color:C.muted, lineHeight:1.7 }}>{r.summary}</p>
+          </Card>
+        ))
+      }
+    </div>}
+    <style>{`@keyframes sp{from{transform:rotate(0)}to{transform:rotate(360deg)}}`}</style>
+  </div>;
 }
 
-function ReportSection({ icon, title, color, children }) {
-  return (
-    <div style={{ background: COLORS.bg, borderRadius: 10, padding: "14px 16px", borderLeft: `3px solid ${color}` }}>
-      <div style={{ fontSize: 12, fontWeight: 700, color, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
-        <span>{icon}</span> {title}
-      </div>
-      {children}
+// ── 설정 ──
+function SettingsPanel({ store }) {
+  const { settings, setSettings } = store;
+  const [form, setForm] = useState({...settings});
+  const [saved, setSaved] = useState(false);
+
+  const save = () => { setSettings(form); setSaved(true); setTimeout(()=>setSaved(false),2000); };
+
+  return <div className="fade">
+    <Hdr title="설정" sub="학원 정보 및 환경 설정" />
+    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:18 }}>
+      <Card>
+        <div style={{ fontSize:14, fontWeight:700, marginBottom:16 }}>학원 기본 정보</div>
+        <Input label="학원 이름" value={form.academyName||""} onChange={v=>setForm(p=>({...p,academyName:v}))} placeholder="키맨학원" />
+        <Input label="원장 이름" value={form.directorName||""} onChange={v=>setForm(p=>({...p,directorName:v}))} placeholder="원장" />
+        <Input label="발신번호 (SMS용)" value={form.fromNumber||""} onChange={v=>setForm(p=>({...p,fromNumber:v}))} placeholder="010-0000-0000" />
+        <Btn onClick={save} style={{ marginTop:4 }}>{saved?"✓ 저장됨":"저장"}</Btn>
+      </Card>
+      <Card>
+        <div style={{ fontSize:14, fontWeight:700, marginBottom:16 }}>Vercel 환경변수 안내</div>
+        <div style={{ fontSize:12, color:C.muted, lineHeight:2 }}>
+          SMS/알림톡 발송을 위해 아래 환경변수를<br/>Vercel → Settings → Environment Variables 에 등록하세요.<br/><br/>
+          {[["SOLAPI_API_KEY","솔라피 API Key"],["SOLAPI_API_SECRET","솔라피 API Secret"],["SOLAPI_FROM_NUMBER","발신번호 (숫자만)"],["SOLAPI_KAKAO_PFID","카카오 채널 ID (알림톡용)"],["SOLAPI_KAKAO_TEMPLATE_ID","알림톡 템플릿 ID"]].map(([k,v])=>(
+            <div key={k} style={{ marginBottom:8 }}>
+              <code style={{ background:C.bg, padding:"2px 7px", borderRadius:4, fontSize:11, color:C.accent }}>{k}</code>
+              <span style={{ fontSize:11, color:C.dim, marginLeft:8 }}>{v}</span>
+            </div>
+          ))}
+        </div>
+      </Card>
+      <Card>
+        <div style={{ fontSize:14, fontWeight:700, marginBottom:16 }}>데이터 관리</div>
+        <div style={{ fontSize:12, color:C.muted, marginBottom:16, lineHeight:1.7 }}>
+          모든 데이터는 브라우저 로컬 저장소에 저장됩니다.<br/>
+          데이터 초기화 시 모든 학생·수업·공지 정보가 삭제됩니다.
+        </div>
+        <Btn color={C.red} outline onClick={()=>{if(confirm("정말 초기화하시겠습니까? 모든 데이터가 삭제됩니다.")){localStorage.clear();window.location.reload();}}}>전체 데이터 초기화</Btn>
+      </Card>
     </div>
-  );
+  </div>;
 }
