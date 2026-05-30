@@ -1,20 +1,20 @@
 import { useState } from "react";
 
 const COLORS = {
-  bg: "#0F1117",
-  card: "#181C27",
-  cardBorder: "#252A3A",
-  accent: "#4F8EF7",
-  accentSoft: "#1E2D4F",
-  green: "#2ECC71",
-  greenSoft: "#1A3A2A",
-  yellow: "#F7C948",
-  yellowSoft: "#3A3010",
-  red: "#E74C3C",
-  redSoft: "#3A1A1A",
-  text: "#E8EAF0",
-  textMuted: "#7A8099",
-  textDim: "#4A5068",
+  bg: "#F4F6FB",
+  card: "#FFFFFF",
+  cardBorder: "#E2E8F0",
+  accent: "#3B7EF6",
+  accentSoft: "#EBF2FF",
+  green: "#16A34A",
+  greenSoft: "#DCFCE7",
+  yellow: "#D97706",
+  yellowSoft: "#FEF3C7",
+  red: "#DC2626",
+  redSoft: "#FEE2E2",
+  text: "#1A202C",
+  textMuted: "#64748B",
+  textDim: "#94A3B8",
 };
 
 const NAV_ITEMS = [
@@ -26,12 +26,12 @@ const NAV_ITEMS = [
   { id: "report", icon: "◧", label: "수업 보고서" },
 ];
 
-// ── SMS 발송: 백엔드 Serverless Function 호출 (API Secret 서버에서만 사용) ──
-async function sendSolapiSMS({ to, text }) {
+// ── 메시지 발송: 백엔드 Serverless Function 호출 (API Secret 서버에서만 사용) ──
+async function sendSolapiSMS({ to, text, type = "sms", variables }) {
   const res = await fetch("/api/send-sms", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ to, text }),
+    body: JSON.stringify({ to, text, type, variables }),
   });
   return res.json();
 }
@@ -142,11 +142,11 @@ export default function AcademyApp() {
         button { cursor: pointer; border: none; background: none; font-family: inherit; }
         input, textarea { font-family: inherit; }
         .nav-item { transition: all 0.2s; }
-        .nav-item:hover { background: rgba(79,142,247,0.08) !important; }
-        .nav-item.active { background: rgba(79,142,247,0.15) !important; }
+        .nav-item:hover { background: rgba(59,126,246,0.08) !important; }
+        .nav-item.active { background: rgba(59,126,246,0.12) !important; }
         .card-hover { transition: transform 0.2s, box-shadow 0.2s; }
         .card-hover:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
-        .row-hover:hover { background: rgba(255,255,255,0.03) !important; }
+        .row-hover:hover { background: rgba(59,126,246,0.04) !important; }
         .btn-primary { transition: all 0.15s; }
         .btn-primary:hover { opacity: 0.88; transform: translateY(-1px); }
         .badge-pulse { animation: pulse 2s infinite; }
@@ -181,7 +181,7 @@ export default function AcademyApp() {
           fontWeight: 900,
           fontFamily: "'Space Grotesk', sans-serif",
           marginBottom: 4,
-          boxShadow: `0 0 20px rgba(79,142,247,0.4)`,
+          boxShadow: `0 4px 12px rgba(59,126,246,0.25)`,
         }}>K</div>
         <div style={{ fontSize: 8, color: COLORS.accent, fontWeight: 700, letterSpacing: "0.04em", marginBottom: 24, textAlign: "center" }}>키맨</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 6, width: "100%" }}>
@@ -229,7 +229,7 @@ export default function AcademyApp() {
             width: 32,
             height: 32,
             borderRadius: "50%",
-            background: "linear-gradient(135deg, #667eea, #764ba2)",
+            background: "linear-gradient(135deg, #3B7EF6, #6366F1)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -477,7 +477,7 @@ function Grades({ selectedStudent, setSelectedStudent }) {
             {STUDENTS.map(s => (
               <tr key={s.id} className="row-hover" style={{
                 borderBottom: `1px solid ${COLORS.cardBorder}22`,
-                background: selectedStudent?.id === s.id ? "rgba(79,142,247,0.06)" : "transparent",
+                background: selectedStudent?.id === s.id ? "rgba(59,126,246,0.06)" : "transparent",
               }}>
                 <td style={{ padding: "13px 14px", fontWeight: 600, fontSize: 13 }}>{s.name}</td>
                 <td style={{ padding: "13px 14px", fontSize: 12, color: COLORS.textMuted }}>{s.class}</td>
@@ -634,7 +634,7 @@ function NoticePanel({ notices, setNotices, composeOpen, setComposeOpen, compose
               padding: "15px 22px",
               borderBottom: i < notices.length - 1 ? `1px solid ${COLORS.cardBorder}22` : "none",
               cursor: "pointer",
-              background: n.read ? "transparent" : "rgba(79,142,247,0.03)",
+              background: n.read ? "transparent" : "rgba(59,126,246,0.04)",
             }}
           >
             {!n.read && <div style={{ width: 6, height: 6, borderRadius: "50%", background: COLORS.accent, flexShrink: 0 }} />}
@@ -691,6 +691,7 @@ function SMSPanel() {
   const [customText, setCustomText] = useState("");
   const [sending, setSending] = useState(false);
   const [results, setResults] = useState([]);
+  const [sendType, setSendType] = useState("kakao"); // "kakao" | "sms"
 
   const template = SMS_TEMPLATES.find(t => t.id === templateId);
   const messageText = templateId === 5 ? customText : template.text;
@@ -707,11 +708,11 @@ function SMSPanel() {
     for (const student of targets) {
       const text = messageText.replace(/\{이름\}/g, student.name);
       const to = student.parentPhone.replace(/-/g, "");
+      const variables = { "#{이름}": student.name };
       try {
-        // API Secret은 서버(/api/send-sms)에서만 처리됨
-        const res = await sendSolapiSMS({ to, text });
+        const res = await sendSolapiSMS({ to, text, type: sendType, variables });
         if (res.error) newResults.push({ name: student.name, phone: student.parentPhone, status: "실패", reason: res.error });
-        else newResults.push({ name: student.name, phone: student.parentPhone, status: "성공" });
+        else newResults.push({ name: student.name, phone: student.parentPhone, status: "성공", type: sendType });
       } catch (e) {
         newResults.push({ name: student.name, phone: student.parentPhone, status: "실패", reason: e.message });
       }
@@ -722,15 +723,47 @@ function SMSPanel() {
   return (
     <div className="fade-in">
       <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
-      <Header title="문자 발송" subtitle="키맨학원 · 솔라피 SMS 발송" />
+      <Header title="메시지 발송" subtitle="키맨학원 · 카카오 알림톡 / SMS 발송" />
 
-      {/* 안내 배너 */}
-      <div style={{ background: COLORS.card, border: `1px solid ${COLORS.green}30`, borderRadius: 14, marginBottom: 20, padding: "14px 20px", display: "flex", alignItems: "center", gap: 12 }}>
-        <span style={{ fontSize: 18, color: COLORS.green }}>🔒</span>
+      {/* 발송 방식 선택 */}
+      <div style={{ display: "flex", gap: 12, marginBottom: 20 }}>
+        {[
+          { id: "kakao", icon: "💬", label: "카카오 알림톡", desc: "카카오톡으로 발송 (실패 시 SMS 자동 대체)", color: "#FEE500", textColor: "#3A1F00" },
+          { id: "sms", icon: "✉", label: "SMS 문자", desc: "일반 문자메시지로 발송", color: COLORS.accentSoft, textColor: COLORS.accent },
+        ].map(t => (
+          <button key={t.id} onClick={() => setSendType(t.id)}
+            style={{ flex: 1, padding: "16px 20px", borderRadius: 12, textAlign: "left", cursor: "pointer", border: `2px solid ${sendType === t.id ? (t.id === "kakao" ? "#FEE500" : COLORS.accent) : COLORS.cardBorder}`,
+              background: sendType === t.id ? (t.id === "kakao" ? "#FFFDE7" : COLORS.accentSoft) : COLORS.card }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <span style={{ fontSize: 20 }}>{t.icon}</span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: sendType === t.id ? t.textColor : COLORS.text }}>{t.label}</span>
+              {sendType === t.id && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 10, background: t.id === "kakao" ? "#FEE500" : COLORS.accent, color: t.id === "kakao" ? "#3A1F00" : "#fff", fontWeight: 700 }}>선택됨</span>}
+            </div>
+            <div style={{ fontSize: 11, color: COLORS.textMuted }}>{t.desc}</div>
+          </button>
+        ))}
+      </div>
+
+      {/* 카카오 알림톡 안내 */}
+      {sendType === "kakao" && (
+        <div className="fade-in" style={{ background: "#FFFDE7", border: "1px solid #FEE500", borderRadius: 12, padding: "14px 18px", marginBottom: 20 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#7A5C00", marginBottom: 8 }}>💬 카카오 알림톡 설정 안내</div>
+          <div style={{ fontSize: 12, color: "#9A7A00", lineHeight: 1.9 }}>
+            Vercel → Settings → Environment Variables 에 아래 항목 추가:<br />
+            <b>SOLAPI_KAKAO_PFID</b> — 솔라피에서 등록한 카카오 채널 ID (예: <code style={{background:"#FFF8DC", padding:"1px 5px", borderRadius:4}}>yellowid_xxxxx</code>)<br />
+            <b>SOLAPI_KAKAO_TEMPLATE_ID</b> — 등록한 알림톡 템플릿 ID<br />
+            <span style={{ color:"#B8860B" }}>※ 알림톡 발송 실패 시 SMS로 자동 대체됩니다.</span>
+          </div>
+        </div>
+      )}
+
+      {/* 환경변수 안내 */}
+      <div style={{ background: COLORS.card, border: `1px solid ${COLORS.green}30`, borderRadius: 14, marginBottom: 20, padding: "13px 18px", display: "flex", alignItems: "center", gap: 12 }}>
+        <span style={{ fontSize: 16, color: COLORS.green }}>🔒</span>
         <div style={{ fontSize: 12, color: COLORS.textMuted, lineHeight: 1.7 }}>
           API Key / Secret은 <b style={{ color: COLORS.text }}>서버 환경변수</b>에서 안전하게 관리됩니다.
-          Vercel 대시보드 → Settings → Environment Variables 에서
-          <b style={{ color: COLORS.accent }}> SOLAPI_API_KEY, SOLAPI_API_SECRET, SOLAPI_FROM_NUMBER</b> 를 등록하세요.
+          Vercel → Settings → Environment Variables:
+          <b style={{ color: COLORS.accent }}> SOLAPI_API_KEY, SOLAPI_API_SECRET, SOLAPI_FROM_NUMBER</b>
         </div>
       </div>
 
@@ -747,7 +780,7 @@ function SMSPanel() {
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {STUDENTS.map(s => (
               <label key={s.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderRadius: 8, cursor: "pointer",
-                background: selectedStudents.includes(s.id) ? "rgba(79,142,247,0.08)" : "transparent",
+                background: selectedStudents.includes(s.id) ? "rgba(59,126,246,0.08)" : "transparent",
                 border: selectedStudents.includes(s.id) ? `1px solid ${COLORS.accent}30` : "1px solid transparent",
               }}>
                 <input type="checkbox" checked={selectedStudents.includes(s.id)} onChange={() => toggleStudent(s.id)} style={{ accentColor: COLORS.accent }} />
@@ -794,11 +827,15 @@ function SMSPanel() {
               💬 <b style={{ color: COLORS.textMuted }}>{"{이름}"}</b> 입력 시 학생 이름으로 자동 치환 · SMS 90자 / LMS 2000자
             </div>
             <button className="btn-primary" onClick={handleSend} disabled={sending}
-              style={{ width: "100%", marginTop: 16, padding: "13px", borderRadius: 10, background: sending ? COLORS.cardBorder : COLORS.accent,
-                color: sending ? COLORS.textMuted : "#fff", fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+              style={{ width: "100%", marginTop: 16, padding: "13px", borderRadius: 10,
+                background: sending ? COLORS.cardBorder : sendType === "kakao" ? "#FEE500" : COLORS.accent,
+                color: sending ? COLORS.textMuted : sendType === "kakao" ? "#3A1F00" : "#fff",
+                fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
               {sending
                 ? <><span style={{ animation: "spin 1s linear infinite", display: "inline-block" }}>⟳</span> 발송 중...</>
-                : <>✉ {selectedStudents.length}명 학부모에게 문자 발송</>}
+                : sendType === "kakao"
+                  ? <>💬 {selectedStudents.length}명에게 카카오 알림톡 발송</>
+                  : <>✉ {selectedStudents.length}명에게 SMS 발송</>}
             </button>
           </div>
         </div>
@@ -830,6 +867,7 @@ function SMSPanel() {
                 <div style={{ flex: 1 }}>
                   <span style={{ fontSize: 13, fontWeight: 600 }}>{r.name}</span>
                   <span style={{ fontSize: 12, color: COLORS.textMuted, marginLeft: 8 }}>{r.phone}</span>
+                  {r.type && <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, marginLeft: 6, background: r.type === "kakao" ? "#FEE500" : COLORS.accentSoft, color: r.type === "kakao" ? "#7A5C00" : COLORS.accent, fontWeight: 700 }}>{r.type === "kakao" ? "알림톡" : "SMS"}</span>}
                   {r.reason && <span style={{ fontSize: 11, color: COLORS.red, marginLeft: 8 }}>({r.reason})</span>}
                 </div>
                 <span style={{ fontSize: 12, color: r.status === "성공" ? COLORS.green : COLORS.red, fontWeight: 600 }}>{r.status}</span>
@@ -998,7 +1036,7 @@ ${report.parentMessage}`;
               <div style={{ marginBottom: 14 }}>
                 <label style={{ fontSize: 11, color: COLORS.textMuted, display: "block", marginBottom: 6 }}>수업 날짜</label>
                 <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)}
-                  style={{ width: "100%", background: COLORS.bg, border: `1px solid ${COLORS.cardBorder}`, borderRadius: 8, padding: "9px 12px", color: COLORS.text, fontSize: 13, outline: "none", colorScheme: "dark" }} />
+                  style={{ width: "100%", background: COLORS.bg, border: `1px solid ${COLORS.cardBorder}`, borderRadius: 8, padding: "9px 12px", color: COLORS.text, fontSize: 13, outline: "none", colorScheme: "light" }} />
               </div>
 
               <div style={{ marginBottom: 14 }}>
@@ -1053,7 +1091,7 @@ ${report.parentMessage}`;
               style={{ width: "100%", padding: "14px", borderRadius: 12, fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
                 background: generating ? COLORS.cardBorder : "linear-gradient(135deg, #4F8EF7, #7C4DFF)",
                 color: generating ? COLORS.textMuted : "#fff",
-                boxShadow: generating ? "none" : "0 4px 20px rgba(79,142,247,0.35)" }}>
+                boxShadow: generating ? "none" : "0 4px 16px rgba(59,126,246,0.3)" }}>
               {generating
                 ? <><span style={{ animation: "spin 1s linear infinite", display: "inline-block" }}>⟳</span> AI가 보고서 작성 중...</>
                 : <>✦ AI 보고서 자동 생성</>}
