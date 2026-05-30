@@ -1,5 +1,4 @@
-// api/send-sms.js
-// Vercel Serverless Function — API Secret을 서버에서만 사용
+// api/send-sms.jsexport const config = { runtime: "nodejs" };// Vercel Serverless Function — API Secret을 서버에서만 사용
 
 import { createHmac, randomBytes } from "crypto";
 
